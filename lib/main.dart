@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'booking_model.dart';
 import 'database_service.dart';
 
+
 void main() {
   runApp(const MyApp());
 }
 
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
+
 
   @override
   Widget build(BuildContext context) {
@@ -24,26 +27,52 @@ class MyApp extends StatelessWidget {
   }
 }
 
+
 // ==========================================
 // 1. LOGIN SCREEN (AUTHENTICATION)
 // ==========================================
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
+
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
+
 
 class _LoginScreenState extends State<LoginScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
+
   bool _isRegistering = false; // Toggles between Login and Register views
+
+
+  String? _validatePassword(String password) {
+    if (password.length < 8) {
+      return 'Password must be at least 8 characters long.';
+    }
+    if (!password.contains(RegExp(r'[A-Z]'))) {
+      return 'Password must contain at least one uppercase letter.';
+    }
+    if (!password.contains(RegExp(r'[a-z]'))) {
+      return 'Password must contain at least one lowercase letter.';
+    }
+    if (!password.contains(RegExp(r'[0-9]'))) {
+      return 'Password must contain at least one number.';
+    }
+    if (!password.contains(RegExp(r'[!@#\$%^&*(),.?":{}|<>]'))) {
+      return 'Password must contain at least one special character.';
+    }
+    return null;
+  }
+
 
   void _submitForm() async {
     final username = _usernameController.text.trim();
     final password = _passwordController.text.trim();
+
 
     if (username.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -52,30 +81,44 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
+
     if (_isRegistering) {
       // --- REGISTRATION LOGIC ---
       final confirmPassword = _confirmPasswordController.text.trim();
 
+
+      // 1. Validate Password Strength
+      final passwordError = _validatePassword(password);
+      if (passwordError != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(passwordError)));
+        return; // Stop the registration process
+      }
+
+
+      // 2. Check if passwords match
       if (password != confirmPassword) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Passwords do not match')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Passwords do not match')));
         return;
       }
 
+
+      // 3. Register the user
       try {
-        // Force the role to 'student' for all new registrations
         await DatabaseService().registerUser(username, password, 'student');
 
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Registration successful! Please log in.')),
+          const SnackBar(
+            content: Text('Registration successful! Logging in...'),
+          ),
         );
 
-        setState(() {
-          _isRegistering = false; // Switch back to login mode after registration
-          _passwordController.clear();
-          _confirmPasswordController.clear();
-        });
+
+        _navigateToMain(username: username, role: 'student');
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Username already exists!')),
@@ -84,11 +127,13 @@ class _LoginScreenState extends State<LoginScreen> {
     } else {
       // --- LOGIN LOGIC WITH HARDCODED ADMIN ---
 
+
       // 1. HARDCODED ADMIN CHECK
       if (username == 'admin' && password == 'admin123') {
         _navigateToMain(username: 'System Admin', role: 'admin');
         return;
       }
+
 
       // 2. CHECK DATABASE FOR OTHER USERS (Registered Students)
       final user = await DatabaseService().loginUser(username, password);
@@ -102,17 +147,17 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+
   void _navigateToMain({required String username, required String role}) {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (context) => MainNavigationScreen(
-          userRole: role,
-          username: username,
-        ),
+        builder: (context) =>
+            MainNavigationScreen(userRole: role, username: username),
       ),
     );
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -122,7 +167,9 @@ class _LoginScreenState extends State<LoginScreen> {
           padding: const EdgeInsets.all(24.0),
           child: Card(
             elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(24.0),
               child: Column(
@@ -132,11 +179,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   const Icon(Icons.school, size: 64, color: Colors.indigo),
                   const SizedBox(height: 16),
                   Text(
-                    _isRegistering ? 'Create Student Account' : 'Career & Industry Portal',
+                    _isRegistering
+                        ? 'Create Student Account'
+                        : 'Career & Industry Portal',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 24),
+
 
                   // Username Field
                   TextField(
@@ -149,6 +202,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 16),
 
+
                   // Password Field
                   TextField(
                     controller: _passwordController,
@@ -160,6 +214,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
+
 
                   // Confirm Password Field (Only shown during registration)
                   if (_isRegistering) ...[
@@ -175,6 +230,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 16),
                   ],
 
+
                   // Submit Button
                   ElevatedButton(
                     onPressed: _submitForm,
@@ -183,9 +239,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       backgroundColor: Colors.indigo,
                       foregroundColor: Colors.white,
                     ),
-                    child: Text(_isRegistering ? 'Register' : 'Login', style: const TextStyle(fontSize: 16)),
+                    child: Text(
+                      _isRegistering ? 'Register' : 'Login',
+                      style: const TextStyle(fontSize: 16),
+                    ),
                   ),
                   const SizedBox(height: 12),
+
 
                   // Mode Toggle Button (Login <-> Register)
                   TextButton(
@@ -210,6 +270,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
+
 // ==========================================
 // 2. MAIN NAVIGATION (Role-Aware)
 // ==========================================
@@ -217,18 +278,22 @@ class MainNavigationScreen extends StatefulWidget {
   final String userRole;
   final String username;
 
+
   const MainNavigationScreen({
     super.key,
     required this.userRole,
     required this.username,
   });
 
+
   @override
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
+
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
+
 
   @override
   Widget build(BuildContext context) {
@@ -239,6 +304,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       BookingPage(userRole: widget.userRole, username: widget.username),
       const IndustryPage(),
     ];
+
 
     return Scaffold(
       body: pages[_currentIndex],
@@ -266,6 +332,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 }
 
+
 // ==========================================
 // 3. HOME PAGE (with Logout option)
 // ==========================================
@@ -273,7 +340,9 @@ class HomePage extends StatelessWidget {
   final String userRole;
   final String username;
 
+
   const HomePage({super.key, required this.userRole, required this.username});
+
 
   @override
   Widget build(BuildContext context) {
@@ -285,9 +354,38 @@ class HomePage extends StatelessWidget {
             icon: const Icon(Icons.logout),
             tooltip: 'Logout',
             onPressed: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (context) => const LoginScreen()),
+              // Show confirmation dialog
+              showDialog(
+                context: context,
+                builder: (BuildContext context) {
+                  return AlertDialog(
+                    title: const Text('Confirm Logout'),
+                    content: const Text('Are you sure you want to log out?'),
+                    actions: [
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(context); // Close the dialog
+                        },
+                        child: const Text('Cancel'),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(context); // Close the dialog
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const LoginScreen(),
+                            ),
+                          );
+                        },
+                        child: const Text(
+                          'Logout',
+                          style: TextStyle(color: Colors.red),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               );
             },
           ),
@@ -310,11 +408,13 @@ class HomePage extends StatelessWidget {
   }
 }
 
+
 // ==========================================
 // 4. DATA ANALYSIS PAGE
 // ==========================================
 class DataAnalysisPage extends StatelessWidget {
   const DataAnalysisPage({super.key});
+
 
   @override
   Widget build(BuildContext context) {
@@ -347,6 +447,7 @@ class DataAnalysisPage extends StatelessWidget {
   }
 }
 
+
 // ==========================================
 // 5. MODULE 2: BOOKING AND RESERVATION (ROLE-BASED)
 // ==========================================
@@ -354,15 +455,18 @@ class BookingPage extends StatelessWidget {
   final String userRole;
   final String username;
 
+
   const BookingPage({
     super.key,
     required this.userRole,
     required this.username,
   });
 
+
   @override
   Widget build(BuildContext context) {
     final bool isAdmin = userRole == 'admin';
+
 
     return DefaultTabController(
       length: 3,
@@ -378,51 +482,67 @@ class BookingPage extends StatelessWidget {
             tabAlignment: TabAlignment.start,
             tabs: isAdmin
                 ? const [
-                    Tab(text: 'Pending Requests (Accept/Reject)'),
-                    Tab(text: 'Assign Interviewer / Advisor'),
-                    Tab(text: 'All Bookings & Cancellations'),
-                  ]
+              Tab(text: 'Pending Requests (Accept/Reject)'),
+              Tab(text: 'Assign Interviewer / Advisor'),
+              Tab(text: 'All Bookings & Cancellations'),
+            ]
                 : const [
-                    Tab(text: 'Workshops & Fairs'),
-                    Tab(text: 'Mock Interviews & Advisory'),
-                    Tab(text: 'My Booking Status'),
-                  ],
+              Tab(text: 'Workshops & Fairs'),
+              Tab(text: 'Mock Interviews & Advisory'),
+              Tab(text: 'My Booking Status'),
+            ],
           ),
         ),
+        floatingActionButton: isAdmin
+            ? FloatingActionButton.extended(
+          onPressed: () {
+            showDialog(
+              context: context,
+              builder: (context) => const CreateWorkshopDialog(),
+            );
+          },
+          icon: const Icon(Icons.add),
+          label: const Text('New Event'),
+          backgroundColor: Colors.indigo,
+          foregroundColor: Colors.white,
+        )
+            : null,
         body: TabBarView(
           children: isAdmin
               ? [
-                  AdminPendingRequestsView(dbService: DatabaseService()),
-                  AdminAssignAdvisorView(dbService: DatabaseService()),
-                  AllBookingsView(dbService: DatabaseService()),
-                ]
+            AdminPendingRequestsView(dbService: DatabaseService()),
+            AdminAssignAdvisorView(dbService: DatabaseService()),
+            AllBookingsView(dbService: DatabaseService()),
+          ]
               : [
-                  StudentBookingTab(
-                    bookingType: 'Career Workshop',
-                    username: username,
-                  ),
-                  StudentBookingTab(
-                    bookingType: 'Mock Interview',
-                    username: username,
-                  ),
-                  StudentHistoryTab(username: username),
-                ],
+            StudentWorkshopListView(username: username),
+
+
+            StudentBookingTab(
+              bookingType: 'Mock Interview',
+              username: username,
+            ),
+            StudentHistoryTab(username: username),
+          ],
         ),
       ),
     );
   }
 }
 
+
 // --- STUDENT TAB: Make a Booking ---
 class StudentBookingTab extends StatelessWidget {
   final String bookingType;
   final String username;
+
 
   const StudentBookingTab({
     super.key,
     required this.bookingType,
     required this.username,
   });
+
 
   @override
   Widget build(BuildContext context) {
@@ -464,14 +584,17 @@ class StudentBookingTab extends StatelessWidget {
   }
 }
 
+
 // --- STUDENT TAB: My Booking Status ---
 class StudentHistoryTab extends StatefulWidget {
   final String username;
   const StudentHistoryTab({super.key, required this.username});
 
+
   @override
   State<StudentHistoryTab> createState() => _StudentHistoryTabState();
 }
+
 
 class _StudentHistoryTabState extends State<StudentHistoryTab> {
   @override
@@ -482,13 +605,16 @@ class _StudentHistoryTabState extends State<StudentHistoryTab> {
         if (!snapshot.hasData)
           return const Center(child: CircularProgressIndicator());
 
+
         // Filter bookings belonging to this student
         final myBookings = snapshot.data!
             .where((b) => b.studentName == widget.username)
             .toList();
 
+
         if (myBookings.isEmpty)
           return const Center(child: Text('No booking requests found.'));
+
 
         return ListView.builder(
           itemCount: myBookings.length,
@@ -517,15 +643,18 @@ class _StudentHistoryTabState extends State<StudentHistoryTab> {
   }
 }
 
+
 // --- ADMIN TAB 1: Accept or Reject ---
 class AdminPendingRequestsView extends StatefulWidget {
   final DatabaseService dbService;
   const AdminPendingRequestsView({super.key, required this.dbService});
 
+
   @override
   State<AdminPendingRequestsView> createState() =>
       _AdminPendingRequestsViewState();
 }
+
 
 class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
   @override
@@ -539,8 +668,10 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
             .where((b) => b.status == 'Pending')
             .toList();
 
+
         if (pendingList.isEmpty)
           return const Center(child: Text('No pending requests to review.'));
+
 
         return ListView.builder(
           itemCount: pendingList.length,
@@ -581,14 +712,17 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
   }
 }
 
+
 // --- ADMIN TAB 2: Arrange Interviewers & Advisors ---
 class AdminAssignAdvisorView extends StatefulWidget {
   final DatabaseService dbService;
   const AdminAssignAdvisorView({super.key, required this.dbService});
 
+
   @override
   State<AdminAssignAdvisorView> createState() => _AdminAssignAdvisorViewState();
 }
+
 
 class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
   @override
@@ -602,10 +736,12 @@ class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
             .where((b) => b.status == 'Approved')
             .toList();
 
+
         if (approvedList.isEmpty)
           return const Center(
             child: Text('No approved bookings ready for assignment.'),
           );
+
 
         return ListView.builder(
           itemCount: approvedList.length,
@@ -632,14 +768,17 @@ class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
   }
 }
 
+
 // --- ADMIN TAB 3: All Bookings & Cancel Action ---
 class AllBookingsView extends StatefulWidget {
   final DatabaseService dbService;
   const AllBookingsView({super.key, required this.dbService});
 
+
   @override
   State<AllBookingsView> createState() => _AllBookingsViewState();
 }
+
 
 class _AllBookingsViewState extends State<AllBookingsView> {
   @override
@@ -649,6 +788,7 @@ class _AllBookingsViewState extends State<AllBookingsView> {
       builder: (context, snapshot) {
         if (!snapshot.hasData)
           return const Center(child: CircularProgressIndicator());
+
 
         return ListView.builder(
           itemCount: snapshot.data!.length,
@@ -676,11 +816,13 @@ class _AllBookingsViewState extends State<AllBookingsView> {
   }
 }
 
+
 // ==========================================
 // 6. INDUSTRY PAGE
 // ==========================================
 class IndustryPage extends StatelessWidget {
   const IndustryPage({super.key});
+
 
   @override
   Widget build(BuildContext context) {
@@ -708,3 +850,408 @@ class IndustryPage extends StatelessWidget {
     );
   }
 }
+
+
+// ==========================================
+// 7. ADMIN: CREATE EVENT DIALOG
+// ==========================================
+class CreateWorkshopDialog extends StatefulWidget {
+  const CreateWorkshopDialog({super.key});
+
+
+  @override
+  State<CreateWorkshopDialog> createState() => _CreateWorkshopDialogState();
+}
+
+
+class _CreateWorkshopDialogState extends State<CreateWorkshopDialog> {
+  final _titleController = TextEditingController();
+  final _speakerController = TextEditingController();
+  final _venueController = TextEditingController();
+  final _limitController = TextEditingController();
+
+
+  DateTime? _selectedDate;
+  TimeOfDay? _selectedTime;
+
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 1)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (picked != null) setState(() => _selectedDate = picked);
+  }
+
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: const TimeOfDay(hour: 10, minute: 0),
+    );
+    if (picked != null) setState(() => _selectedTime = picked);
+  }
+
+
+  void _saveEvent() {
+    if (_titleController.text.isEmpty ||
+        _limitController.text.isEmpty ||
+        _selectedDate == null ||
+        _selectedTime == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fill in Title, Limit, Date, and Time'),
+        ),
+      );
+      return;
+    }
+
+
+    // TODO: Create an EventModel and pass this data to DatabaseService().insertEvent(...)
+    /*
+   final newEvent = EventModel(
+     title: _titleController.text.trim(),
+     speaker: _speakerController.text.trim(),
+     venue: _venueController.text.trim(),
+     date: _selectedDate!.toIso8601String(),
+     time: _selectedTime!.format(context),
+     capacity: int.parse(_limitController.text.trim()),
+   );
+   await DatabaseService().insertEvent(newEvent);
+   */
+
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Workshop created successfully!')),
+    );
+    Navigator.pop(context); // Close the dialog
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Create New Workshop'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _titleController,
+              decoration: const InputDecoration(
+                labelText: 'Event Title *',
+                hintText: 'e.g. Resume Masterclass',
+              ),
+            ),
+            TextField(
+              controller: _speakerController,
+              decoration: const InputDecoration(
+                labelText: 'Speaker / Advisor',
+                hintText: 'e.g. Dr. Smith',
+              ),
+            ),
+            TextField(
+              controller: _venueController,
+              decoration: const InputDecoration(
+                labelText: 'Venue / Link',
+                hintText: 'e.g. Room 302 or Zoom',
+              ),
+            ),
+            TextField(
+              controller: _limitController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Booking Limit (Pax) *',
+                hintText: 'e.g. 30',
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _pickDate,
+                    icon: const Icon(Icons.calendar_today),
+                    label: Text(
+                      _selectedDate == null
+                          ? 'Select Date'
+                          : '${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _pickTime,
+                    icon: const Icon(Icons.access_time),
+                    label: Text(
+                      _selectedTime == null
+                          ? 'Select Time'
+                          : _selectedTime!.format(context),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _saveEvent,
+          child: const Text('Create Event'),
+        ),
+      ],
+    );
+  }
+}
+
+
+// ==========================================
+// 8. STUDENT: WORKSHOP LIST & DETAILS
+// ==========================================
+class StudentWorkshopListView extends StatefulWidget {
+  final String username;
+  const StudentWorkshopListView({super.key, required this.username});
+
+
+  @override
+  State<StudentWorkshopListView> createState() => _StudentWorkshopListViewState();
+}
+
+
+class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
+  // Mock data for demonstration.
+  // TODO: Replace with DatabaseService().getEvents() later.
+  final List<Map<String, dynamic>> _mockEvents = [
+    {
+      'id': '1',
+      'title': 'Tech Resume Masterclass',
+      'speaker': 'Dr. Smith',
+      'venue': 'Room 302',
+      'date': '2026-09-15',
+      'time': '10:00 AM',
+      'capacity': 30,
+      'booked': 12,
+    },
+    {
+      'id': '2',
+      'title': 'Google Cloud Career Fair',
+      'speaker': 'Jane Doe (Google HR)',
+      'venue': 'Main Auditorium',
+      'date': '2026-09-20',
+      'time': '02:00 PM',
+      'capacity': 100,
+      'booked': 100, // This event is full
+    }
+  ];
+
+
+  void _showEventDetails(BuildContext context, Map<String, dynamic> event) {
+    final int available = event['capacity'] - event['booked'];
+    final bool isFull = available <= 0;
+
+
+    showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (context) {
+          return Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Event Title
+                Text(
+                    event['title'],
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)
+                ),
+                const SizedBox(height: 20),
+
+
+                // Event Details List
+                ListTile(
+                  leading: const Icon(Icons.person, color: Colors.indigo),
+                  title: const Text('Speaker / Advisor'),
+                  subtitle: Text(event['speaker']),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                ListTile(
+                  leading: const Icon(Icons.location_on, color: Colors.indigo),
+                  title: const Text('Venue'),
+                  subtitle: Text(event['venue']),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                ListTile(
+                  leading: const Icon(Icons.calendar_today, color: Colors.indigo),
+                  title: const Text('Date & Time'),
+                  subtitle: Text('${event['date']} at ${event['time']}'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                const SizedBox(height: 16),
+
+
+                // Capacity Indicator
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                      color: isFull ? Colors.red.shade50 : Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: isFull ? Colors.red.shade200 : Colors.green.shade200
+                      )
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                          'Available Slots:',
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: isFull ? Colors.red.shade700 : Colors.green.shade700
+                          )
+                      ),
+                      Text(
+                          isFull ? 'FULL' : '$available / ${event['capacity']}',
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: isFull ? Colors.red.shade700 : Colors.green.shade700
+                          )
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 32),
+
+
+                // Action Button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: isFull ? Colors.grey : Colors.indigo,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)
+                        )
+                    ),
+                    onPressed: isFull ? null : () async {
+                      // Create the booking record
+                      final newBooking = BookingModel(
+                        studentName: widget.username,
+                        bookingType: 'Workshop: ${event['title']}',
+                        date: event['date'],
+                        status: 'Approved', // Auto-approved for workshops
+                      );
+
+
+                      await DatabaseService().insertBooking(newBooking);
+
+
+                      if (context.mounted) {
+                        Navigator.pop(context); // Close bottom sheet
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Slot reserved successfully!')),
+                        );
+                        // In a real DB setup, you would increment event['booked'] here
+                      }
+                    },
+                    child: Text(
+                        isFull ? 'Event is Full' : 'Reserve My Slot',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)
+                    ),
+                  ),
+                )
+              ],
+            ),
+          );
+        }
+    );
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+    if (_mockEvents.isEmpty) {
+      return const Center(child: Text('No upcoming workshops.'));
+    }
+
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: _mockEvents.length,
+      itemBuilder: (context, index) {
+        final event = _mockEvents[index];
+        final bool isFull = event['booked'] >= event['capacity'];
+
+
+        return Card(
+          elevation: 2,
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _showEventDetails(context, event),
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                children: [
+                  // Calendar Icon Box
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.event, color: Colors.indigo, size: 32),
+                  ),
+                  const SizedBox(width: 16),
+
+
+                  // Text Info
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          event['title'],
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${event['date']} • ${event['time']}',
+                          style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                      Icons.chevron_right,
+                      color: isFull ? Colors.red.shade300 : Colors.grey.shade400
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+

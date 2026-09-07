@@ -424,6 +424,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.0"
+  uid:
+    dependency: "direct main"
+    description:
+      name: uid
+      sha256: "712d52a000e489c3344490abe8f3defc250c73191b652f9188c7e2e17fc96b09"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.1"
   uuid:
     dependency: "direct main"
     description:

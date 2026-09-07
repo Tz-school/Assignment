@@ -1,16 +1,14 @@
 import 'package:flutter/material.dart';
 import 'booking_model.dart';
 import 'database_service.dart';
-
+import 'event_registration_model.dart';
 
 void main() {
   runApp(const MyApp());
 }
 
-
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +24,6 @@ class MyApp extends StatelessWidget {
     );
   }
 }
-
 
 // ==========================================
 // 1. LOGIN SCREEN (AUTHENTICATION)
@@ -687,10 +684,9 @@ class DataAnalysisPage extends StatelessWidget {
 // ==========================================
 // 5. MODULE 2: BOOKING AND RESERVATION (ROLE-BASED)
 // ==========================================
-class BookingPage extends StatelessWidget {
+class BookingPage extends StatefulWidget {
   final String userRole;
   final String username;
-
 
   const BookingPage({
     super.key,
@@ -698,14 +694,19 @@ class BookingPage extends StatelessWidget {
     required this.username,
   });
 
+  @override
+  State<BookingPage> createState() => _BookingPageState();
+}
+
+class _BookingPageState extends State<BookingPage> {
+  int _refreshKey = 0; // Incremented to trigger immediate list refresh
 
   @override
   Widget build(BuildContext context) {
-    final bool isAdmin = userRole == 'admin';
-
+    final bool isAdmin = widget.userRole == 'admin';
 
     return DefaultTabController(
-      length: 3,
+      length: isAdmin ? 4 : 3,
       child: Scaffold(
         appBar: AppBar(
           title: Text(
@@ -718,6 +719,7 @@ class BookingPage extends StatelessWidget {
             tabAlignment: TabAlignment.start,
             tabs: isAdmin
                 ? const [
+              Tab(text: 'All Events & Workshops'),
               Tab(text: 'Pending Requests (Accept/Reject)'),
               Tab(text: 'Assign Interviewer / Advisor'),
               Tab(text: 'All Bookings & Cancellations'),
@@ -731,11 +733,21 @@ class BookingPage extends StatelessWidget {
         ),
         floatingActionButton: isAdmin
             ? FloatingActionButton.extended(
-          onPressed: () {
-            showDialog(
-              context: context,
-              builder: (context) => const CreateWorkshopDialog(),
+          onPressed: () async {
+            // Navigate to full screen page instead of dialog
+            final result = await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const CreateWorkshopScreen(),
+              ),
             );
+
+            // If an event was created, trigger immediate state refresh
+            if (result == true) {
+              setState(() {
+                _refreshKey++;
+              });
+            }
           },
           icon: const Icon(Icons.add),
           label: const Text('New Event'),
@@ -746,26 +758,30 @@ class BookingPage extends StatelessWidget {
         body: TabBarView(
           children: isAdmin
               ? [
+            AdminWorkshopListView(
+              key: ValueKey(_refreshKey), // Forces refresh when returning
+              dbService: DatabaseService(),
+            ),
             AdminPendingRequestsView(dbService: DatabaseService()),
             AdminAssignAdvisorView(dbService: DatabaseService()),
             AllBookingsView(dbService: DatabaseService()),
           ]
               : [
-            StudentWorkshopListView(username: username),
-
-
+            StudentWorkshopListView(
+              key: ValueKey(_refreshKey),
+              username: widget.username,
+            ),
             StudentBookingTab(
               bookingType: 'Mock Interview',
-              username: username,
+              username: widget.username,
             ),
-            StudentHistoryTab(username: username),
+            StudentHistoryTab(username: widget.username),
           ],
         ),
       ),
     );
   }
 }
-
 
 // --- STUDENT TAB: Make a Booking ---
 class StudentBookingTab extends StatelessWidget {
@@ -820,53 +836,51 @@ class StudentBookingTab extends StatelessWidget {
   }
 }
 
-
 // --- STUDENT TAB: My Booking Status ---
 class StudentHistoryTab extends StatefulWidget {
   final String username;
   const StudentHistoryTab({super.key, required this.username});
 
-
   @override
   State<StudentHistoryTab> createState() => _StudentHistoryTabState();
 }
 
-
 class _StudentHistoryTabState extends State<StudentHistoryTab> {
+  Future<List<EventRegistrationModel>> _fetchMyRegistrations() async {
+    final userId = await DatabaseService().getUserId(widget.username);
+    if (userId == null) return [];
+    return await DatabaseService().getUserRegistrations(userId);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<BookingModel>>(
-      future: DatabaseService().getBookings(),
+    return FutureBuilder<List<EventRegistrationModel>>(
+      future: _fetchMyRegistrations(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData)
+        if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
+        }
 
+        final myBookings = snapshot.data!;
 
-        // Filter bookings belonging to this student
-        final myBookings = snapshot.data!
-            .where((b) => b.studentName == widget.username)
-            .toList();
-
-
-        if (myBookings.isEmpty)
+        if (myBookings.isEmpty) {
           return const Center(child: Text('No booking requests found.'));
-
+        }
 
         return ListView.builder(
           itemCount: myBookings.length,
           itemBuilder: (context, index) {
             final booking = myBookings[index];
             return Card(
+              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: ListTile(
-                title: Text(booking.bookingType),
-                subtitle: Text(
-                  'Date: ${booking.date}\nAdvisor: ${booking.assignedAdvisor ?? "Not assigned yet"}',
-                ),
+                title: Text(booking.eventTitle, style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text('Date: ${booking.date} • ${booking.time}'),
                 trailing: Chip(
-                  label: Text(booking.status),
-                  backgroundColor: booking.status == 'Approved'
+                  label: Text(booking.status.toUpperCase()),
+                  backgroundColor: booking.status == 'accepted'
                       ? Colors.green.shade100
-                      : booking.status == 'Rejected'
+                      : booking.status == 'rejected'
                       ? Colors.red.shade100
                       : Colors.orange.shade100,
                 ),
@@ -879,62 +893,85 @@ class _StudentHistoryTabState extends State<StudentHistoryTab> {
   }
 }
 
-
 // --- ADMIN TAB 1: Accept or Reject ---
 class AdminPendingRequestsView extends StatefulWidget {
   final DatabaseService dbService;
   const AdminPendingRequestsView({super.key, required this.dbService});
-
 
   @override
   State<AdminPendingRequestsView> createState() =>
       _AdminPendingRequestsViewState();
 }
 
-
 class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<BookingModel>>(
-      future: widget.dbService.getBookings(),
+    return FutureBuilder<List<EventRegistrationModel>>(
+      future: widget.dbService.getAllRegistrations(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData)
+        if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
+        }
+
+        // Filter only the 'pending' requests
         final pendingList = snapshot.data!
-            .where((b) => b.status == 'Pending')
+            .where((r) => r.status == 'pending')
             .toList();
 
-
-        if (pendingList.isEmpty)
+        if (pendingList.isEmpty) {
           return const Center(child: Text('No pending requests to review.'));
-
+        }
 
         return ListView.builder(
           itemCount: pendingList.length,
           itemBuilder: (context, index) {
-            final b = pendingList[index];
+            final r = pendingList[index];
             return Card(
               margin: const EdgeInsets.all(8),
               child: ListTile(
-                title: Text('${b.bookingType} - ${b.studentName}'),
-                subtitle: Text('Requested Date: ${b.date}'),
+                title: Text('${r.eventTitle} - ${r.username}'),
+                subtitle: Text('Requested Date: ${r.date} at ${r.time}'),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
                       icon: const Icon(Icons.check, color: Colors.green),
                       onPressed: () async {
-                        b.status = 'Approved';
-                        await widget.dbService.editBooking(b);
-                        setState(() {});
+                        final messenger = ScaffoldMessenger.of(context);
+
+                        await widget.dbService.updateRegistrationStatus(
+                            r.registrationId, r.eventId, 'accepted'
+                        );
+
+                        if (mounted) {
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text('Registration for ${r.username} accepted!'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                          setState(() {});
+                        }
                       },
                     ),
                     IconButton(
                       icon: const Icon(Icons.close, color: Colors.red),
                       onPressed: () async {
-                        b.status = 'Rejected';
-                        await widget.dbService.editBooking(b);
-                        setState(() {});
+                        final messenger = ScaffoldMessenger.of(context);
+
+                        await widget.dbService.updateRegistrationStatus(
+                            r.registrationId, r.eventId, 'rejected'
+                        );
+
+                        if (mounted) {
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text('Registration for ${r.username} rejected.'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          setState(() {});
+                        }
                       },
                     ),
                   ],
@@ -947,7 +984,6 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
     );
   }
 }
-
 
 // --- ADMIN TAB 2: Arrange Interviewers & Advisors ---
 class AdminAssignAdvisorView extends StatefulWidget {
@@ -1004,17 +1040,14 @@ class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
   }
 }
 
-
 // --- ADMIN TAB 3: All Bookings & Cancel Action ---
 class AllBookingsView extends StatefulWidget {
   final DatabaseService dbService;
   const AllBookingsView({super.key, required this.dbService});
 
-
   @override
   State<AllBookingsView> createState() => _AllBookingsViewState();
 }
-
 
 class _AllBookingsViewState extends State<AllBookingsView> {
   @override
@@ -1024,7 +1057,6 @@ class _AllBookingsViewState extends State<AllBookingsView> {
       builder: (context, snapshot) {
         if (!snapshot.hasData)
           return const Center(child: CircularProgressIndicator());
-
 
         return ListView.builder(
           itemCount: snapshot.data!.length,
@@ -1089,27 +1121,32 @@ class IndustryPage extends StatelessWidget {
 
 
 // ==========================================
-// 7. ADMIN: CREATE EVENT DIALOG
+// 7. ADMIN: CREATE EVENT SCREEN (FULL PAGE)
 // ==========================================
-class CreateWorkshopDialog extends StatefulWidget {
-  const CreateWorkshopDialog({super.key});
-
+class CreateWorkshopScreen extends StatefulWidget {
+  const CreateWorkshopScreen({super.key});
 
   @override
-  State<CreateWorkshopDialog> createState() => _CreateWorkshopDialogState();
+  State<CreateWorkshopScreen> createState() => _CreateWorkshopScreenState();
 }
 
-
-class _CreateWorkshopDialogState extends State<CreateWorkshopDialog> {
+class _CreateWorkshopScreenState extends State<CreateWorkshopScreen> {
   final _titleController = TextEditingController();
   final _speakerController = TextEditingController();
   final _venueController = TextEditingController();
   final _limitController = TextEditingController();
 
-
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
 
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _speakerController.dispose();
+    _venueController.dispose();
+    _limitController.dispose();
+    super.dispose();
+  }
 
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
@@ -1121,7 +1158,6 @@ class _CreateWorkshopDialogState extends State<CreateWorkshopDialog> {
     if (picked != null) setState(() => _selectedDate = picked);
   }
 
-
   Future<void> _pickTime() async {
     final picked = await showTimePicker(
       context: context,
@@ -1129,7 +1165,6 @@ class _CreateWorkshopDialogState extends State<CreateWorkshopDialog> {
     );
     if (picked != null) setState(() => _selectedTime = picked);
   }
-
 
   void _saveEvent() async {
     if (_titleController.text.isEmpty ||
@@ -1144,7 +1179,8 @@ class _CreateWorkshopDialogState extends State<CreateWorkshopDialog> {
       return;
     }
 
-    final dateStr = "${_selectedDate!.year}-${_selectedDate!.month.toString().padLeft(2, '0')}-${_selectedDate!.day.toString().padLeft(2, '0')}";
+    final dateStr =
+        "${_selectedDate!.year}-${_selectedDate!.month.toString().padLeft(2, '0')}-${_selectedDate!.day.toString().padLeft(2, '0')}";
 
     final newEvent = EventModel(
       title: _titleController.text.trim(),
@@ -1156,43 +1192,61 @@ class _CreateWorkshopDialogState extends State<CreateWorkshopDialog> {
     );
 
     await DatabaseService().insertEvent(newEvent);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Workshop created successfully!')),
+      );
+      // Return 'true' so the calling page knows to reload the event list
+      Navigator.pop(context, true);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Create New Workshop'),
-      content: SingleChildScrollView(
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Create New Workshop'),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             TextField(
               controller: _titleController,
               decoration: const InputDecoration(
                 labelText: 'Event Title *',
                 hintText: 'e.g. Resume Masterclass',
+                border: OutlineInputBorder(),
               ),
             ),
+            const SizedBox(height: 16),
             TextField(
               controller: _speakerController,
               decoration: const InputDecoration(
                 labelText: 'Speaker / Advisor',
                 hintText: 'e.g. Dr. Smith',
+                border: OutlineInputBorder(),
               ),
             ),
+            const SizedBox(height: 16),
             TextField(
               controller: _venueController,
               decoration: const InputDecoration(
                 labelText: 'Venue / Link',
                 hintText: 'e.g. Room 302 or Zoom',
+                border: OutlineInputBorder(),
               ),
             ),
+            const SizedBox(height: 16),
             TextField(
               controller: _limitController,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 labelText: 'Booking Limit (Pax) *',
                 hintText: 'e.g. 30',
+                border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 16),
@@ -1211,7 +1265,7 @@ class _CreateWorkshopDialogState extends State<CreateWorkshopDialog> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
@@ -1227,19 +1281,25 @@ class _CreateWorkshopDialogState extends State<CreateWorkshopDialog> {
                 ),
               ],
             ),
+            const SizedBox(height: 28),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.indigo,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              onPressed: _saveEvent,
+              child: const Text(
+                'Create Event',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: _saveEvent,
-          child: const Text('Create Event'),
-        ),
-      ],
     );
   }
 }
@@ -1340,27 +1400,45 @@ class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
                             borderRadius: BorderRadius.circular(12)
                         )
                     ),
-                    onPressed: isFull ? null : () async {
-                      // 1. Create the booking record
-                      final newBooking = BookingModel(
-                        studentName: widget.username,
-                        bookingType: 'Workshop: ${event.title}',
-                        date: event.date,
-                        status: 'Approved',
-                      );
-                      await DatabaseService().insertBooking(newBooking);
+                    onPressed: isFull
+                        ? null
+                        : () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      final userId = await DatabaseService().getUserId(widget.username);
 
-                      // 2. Increment the booked count for the event
-                      if (event.id != null) {
-                        await DatabaseService().incrementEventBooking(event.id!, event.booked);
-                      }
+                      if (userId != null && event.id != null) {
+                        // 1. Check for existing registration
+                        final alreadyRegistered = await DatabaseService()
+                            .hasUserRegistered(userId, event.id!);
 
-                      if (context.mounted) {
-                        Navigator.pop(context); // Close bottom sheet
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Slot reserved successfully!')),
-                        );
-                        setState(() {}); // Refresh the list view to show updated capacity
+                        if (alreadyRegistered) {
+                          if (mounted) {
+                            Navigator.pop(context); // Close bottom sheet
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                content: Text('You have already registered for this event.'),
+                                backgroundColor: Colors.orange,
+                                duration: Duration(seconds: 3),
+                              ),
+                            );
+                          }
+                          return; // Stop execution
+                        }
+
+                        // 2. Submit if no duplicate found
+                        await DatabaseService().registerForEvent(userId, event.id!);
+
+                        if (mounted) {
+                          Navigator.pop(context); // Close bottom sheet
+                          messenger.showSnackBar(
+                            const SnackBar(
+                              content: Text('Registration submitted! Waiting for Admin approval.'),
+                              backgroundColor: Colors.green,
+                              duration: Duration(seconds: 3),
+                            ),
+                          );
+                          setState(() {}); // Refresh list view
+                        }
                       }
                     },
                     child: Text(
@@ -1446,6 +1524,346 @@ class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
           },
         );
       },
+    );
+  }
+}
+
+// --- ADMIN TAB 0: View All Events & Workshops ---
+class AdminWorkshopListView extends StatefulWidget {
+  final DatabaseService dbService;
+  const AdminWorkshopListView({super.key, required this.dbService});
+
+  @override
+  State<AdminWorkshopListView> createState() => _AdminWorkshopListViewState();
+}
+
+class _AdminWorkshopListViewState extends State<AdminWorkshopListView> {
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<EventModel>>(
+      future: widget.dbService.getEvents(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Center(
+            child: Text('No events created yet. Click "New Event" to start.'),
+          );
+        }
+
+        final events = snapshot.data!;
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: events.length,
+          itemBuilder: (context, index) {
+            final event = events[index];
+            final bool isFull = event.booked >= event.capacity;
+
+            return Card(
+              elevation: 2,
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () async {
+                  // Navigate to Detail Page & reload list if deleted
+                  final result = await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => AdminEventDetailScreen(
+                        event: event,
+                        dbService: widget.dbService,
+                      ),
+                    ),
+                  );
+
+                  if (result == true) {
+                    setState(() {}); // Refresh list if event was deleted
+                  }
+                },
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.event, color: Colors.indigo, size: 32),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              event.title,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text('📅 ${event.date} • ⏰ ${event.time}'),
+                            const SizedBox(height: 2),
+                            Text(
+                              '📍 ${event.venue} | 🎤 ${event.speaker}',
+                              style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text('Booked', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                          Text(
+                            '${event.booked}/${event.capacity}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: isFull ? Colors.red : Colors.green,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+// ==========================================
+// ADMIN: EVENT DETAILS & PARTICIPANTS SCREEN
+// ==========================================
+class AdminEventDetailScreen extends StatefulWidget {
+  final EventModel event;
+  final DatabaseService dbService;
+
+  const AdminEventDetailScreen({
+    super.key,
+    required this.event,
+    required this.dbService,
+  });
+
+  @override
+  State<AdminEventDetailScreen> createState() => _AdminEventDetailScreenState();
+}
+
+class _AdminEventDetailScreenState extends State<AdminEventDetailScreen> {
+  void _confirmDelete() {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Event'),
+          content: Text(
+            'Are you sure you want to delete "${widget.event.title}"? This cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(dialogContext); // Close dialog
+                if (widget.event.id != null) {
+                  await widget.dbService.deleteEvent(widget.event.id!);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Event deleted successfully!')),
+                    );
+                    Navigator.pop(context, true); // Pop back with true to reload list
+                  }
+                }
+              },
+              child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final event = widget.event;
+    final int available = event.capacity - event.booked;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Event Details'),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // --- EVENT SUMMARY CARD ---
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      event.title,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const Divider(height: 24),
+                    ListTile(
+                      leading: const Icon(Icons.person, color: Colors.indigo),
+                      title: const Text('Speaker / Advisor'),
+                      subtitle: Text(event.speaker.isEmpty ? 'N/A' : event.speaker),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.location_on, color: Colors.indigo),
+                      title: const Text('Venue'),
+                      subtitle: Text(event.venue.isEmpty ? 'N/A' : event.venue),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.calendar_today, color: Colors.indigo),
+                      title: const Text('Date & Time'),
+                      subtitle: Text('${event.date} at ${event.time}'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.groups, color: Colors.indigo),
+                      title: const Text('Slots / Capacity'),
+                      subtitle: Text(
+                        '${event.booked} booked out of ${event.capacity} ($available slots remaining)',
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 24),
+            const Text(
+              'Registered Participants',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+
+            // --- PARTICIPANTS LIST ---
+            FutureBuilder<List<BookingModel>>(
+              future: widget.dbService.getBookings(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  );
+                }
+
+                // Filter bookings matching this workshop
+                final participants = (snapshot.data ?? []).where((booking) {
+                  return booking.bookingType == 'Workshop: ${event.title}' ||
+                      booking.bookingType == event.title;
+                }).toList();
+
+                if (participants.isEmpty) {
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'No students have reserved a slot for this event yet.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: participants.length,
+                  itemBuilder: (context, index) {
+                    final p = participants[index];
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.indigo.shade100,
+                          child: Text(
+                            p.studentName.isNotEmpty
+                                ? p.studentName[0].toUpperCase()
+                                : 'S',
+                            style: const TextStyle(
+                              color: Colors.indigo,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        title: Text(
+                          p.studentName,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Text('Booked on: ${p.date}'),
+                        trailing: Chip(
+                          label: Text(p.status),
+                          backgroundColor: Colors.green.shade100,
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+
+            const SizedBox(height: 32),
+
+            // --- DELETE EVENT BUTTON ---
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: _confirmDelete,
+                icon: const Icon(Icons.delete_forever),
+                label: const Text(
+                  'Delete Event',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

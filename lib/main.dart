@@ -34,20 +34,16 @@ class MyApp extends StatelessWidget {
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
-
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
-
 
 class _LoginScreenState extends State<LoginScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
-
   bool _isRegistering = false; // Toggles between Login and Register views
-
 
   String? _validatePassword(String password) {
     if (password.length < 8) {
@@ -68,11 +64,9 @@ class _LoginScreenState extends State<LoginScreen> {
     return null;
   }
 
-
   void _submitForm() async {
     final username = _usernameController.text.trim();
     final password = _passwordController.text.trim();
-
 
     if (username.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -81,11 +75,9 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-
     if (_isRegistering) {
       // --- REGISTRATION LOGIC ---
       final confirmPassword = _confirmPasswordController.text.trim();
-
 
       // 1. Validate Password Strength
       final passwordError = _validatePassword(password);
@@ -895,7 +887,7 @@ class _CreateWorkshopDialogState extends State<CreateWorkshopDialog> {
   }
 
 
-  void _saveEvent() {
+  void _saveEvent() async {
     if (_titleController.text.isEmpty ||
         _limitController.text.isEmpty ||
         _selectedDate == null ||
@@ -908,27 +900,19 @@ class _CreateWorkshopDialogState extends State<CreateWorkshopDialog> {
       return;
     }
 
+    final dateStr = "${_selectedDate!.year}-${_selectedDate!.month.toString().padLeft(2, '0')}-${_selectedDate!.day.toString().padLeft(2, '0')}";
 
-    // TODO: Create an EventModel and pass this data to DatabaseService().insertEvent(...)
-    /*
-   final newEvent = EventModel(
-     title: _titleController.text.trim(),
-     speaker: _speakerController.text.trim(),
-     venue: _venueController.text.trim(),
-     date: _selectedDate!.toIso8601String(),
-     time: _selectedTime!.format(context),
-     capacity: int.parse(_limitController.text.trim()),
-   );
-   await DatabaseService().insertEvent(newEvent);
-   */
-
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Workshop created successfully!')),
+    final newEvent = EventModel(
+      title: _titleController.text.trim(),
+      speaker: _speakerController.text.trim(),
+      venue: _venueController.text.trim(),
+      date: dateStr,
+      time: _selectedTime!.format(context),
+      capacity: int.parse(_limitController.text.trim()),
     );
-    Navigator.pop(context); // Close the dialog
-  }
 
+    await DatabaseService().insertEvent(newEvent);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1016,7 +1000,6 @@ class _CreateWorkshopDialogState extends State<CreateWorkshopDialog> {
   }
 }
 
-
 // ==========================================
 // 8. STUDENT: WORKSHOP LIST & DETAILS
 // ==========================================
@@ -1024,43 +1007,15 @@ class StudentWorkshopListView extends StatefulWidget {
   final String username;
   const StudentWorkshopListView({super.key, required this.username});
 
-
   @override
   State<StudentWorkshopListView> createState() => _StudentWorkshopListViewState();
 }
 
-
 class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
-  // Mock data for demonstration.
-  // TODO: Replace with DatabaseService().getEvents() later.
-  final List<Map<String, dynamic>> _mockEvents = [
-    {
-      'id': '1',
-      'title': 'Tech Resume Masterclass',
-      'speaker': 'Dr. Smith',
-      'venue': 'Room 302',
-      'date': '2026-09-15',
-      'time': '10:00 AM',
-      'capacity': 30,
-      'booked': 12,
-    },
-    {
-      'id': '2',
-      'title': 'Google Cloud Career Fair',
-      'speaker': 'Jane Doe (Google HR)',
-      'venue': 'Main Auditorium',
-      'date': '2026-09-20',
-      'time': '02:00 PM',
-      'capacity': 100,
-      'booked': 100, // This event is full
-    }
-  ];
 
-
-  void _showEventDetails(BuildContext context, Map<String, dynamic> event) {
-    final int available = event['capacity'] - event['booked'];
+  void _showEventDetails(BuildContext context, EventModel event) {
+    final int available = event.capacity - event.booked;
     final bool isFull = available <= 0;
-
 
     showModalBottomSheet(
         context: context,
@@ -1075,37 +1030,30 @@ class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Event Title
                 Text(
-                    event['title'],
+                    event.title,
                     style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)
                 ),
                 const SizedBox(height: 20),
-
-
-                // Event Details List
                 ListTile(
                   leading: const Icon(Icons.person, color: Colors.indigo),
                   title: const Text('Speaker / Advisor'),
-                  subtitle: Text(event['speaker']),
+                  subtitle: Text(event.speaker),
                   contentPadding: EdgeInsets.zero,
                 ),
                 ListTile(
                   leading: const Icon(Icons.location_on, color: Colors.indigo),
                   title: const Text('Venue'),
-                  subtitle: Text(event['venue']),
+                  subtitle: Text(event.venue),
                   contentPadding: EdgeInsets.zero,
                 ),
                 ListTile(
                   leading: const Icon(Icons.calendar_today, color: Colors.indigo),
                   title: const Text('Date & Time'),
-                  subtitle: Text('${event['date']} at ${event['time']}'),
+                  subtitle: Text('${event.date} at ${event.time}'),
                   contentPadding: EdgeInsets.zero,
                 ),
                 const SizedBox(height: 16),
-
-
-                // Capacity Indicator
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -1126,7 +1074,7 @@ class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
                           )
                       ),
                       Text(
-                          isFull ? 'FULL' : '$available / ${event['capacity']}',
+                          isFull ? 'FULL' : '$available / ${event.capacity}',
                           style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -1137,9 +1085,6 @@ class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
                   ),
                 ),
                 const SizedBox(height: 32),
-
-
-                // Action Button
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -1152,24 +1097,26 @@ class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
                         )
                     ),
                     onPressed: isFull ? null : () async {
-                      // Create the booking record
+                      // 1. Create the booking record
                       final newBooking = BookingModel(
                         studentName: widget.username,
-                        bookingType: 'Workshop: ${event['title']}',
-                        date: event['date'],
-                        status: 'Approved', // Auto-approved for workshops
+                        bookingType: 'Workshop: ${event.title}',
+                        date: event.date,
+                        status: 'Approved',
                       );
-
-
                       await DatabaseService().insertBooking(newBooking);
 
+                      // 2. Increment the booked count for the event
+                      if (event.id != null) {
+                        await DatabaseService().incrementEventBooking(event.id!, event.booked);
+                      }
 
                       if (context.mounted) {
                         Navigator.pop(context); // Close bottom sheet
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('Slot reserved successfully!')),
                         );
-                        // In a real DB setup, you would increment event['booked'] here
+                        setState(() {}); // Refresh the list view to show updated capacity
                       }
                     },
                     child: Text(
@@ -1185,73 +1132,76 @@ class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
-    if (_mockEvents.isEmpty) {
-      return const Center(child: Text('No upcoming workshops.'));
-    }
+    return FutureBuilder<List<EventModel>>(
+      future: DatabaseService().getEvents(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Center(child: Text('No upcoming workshops right now.'));
+        }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: _mockEvents.length,
-      itemBuilder: (context, index) {
-        final event = _mockEvents[index];
-        final bool isFull = event['booked'] >= event['capacity'];
+        final events = snapshot.data!;
 
+        return ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: events.length,
+          itemBuilder: (context, index) {
+            final event = events[index];
+            final bool isFull = event.booked >= event.capacity;
 
-        return Card(
-          elevation: 2,
-          margin: const EdgeInsets.symmetric(vertical: 8),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => _showEventDetails(context, event),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Row(
-                children: [
-                  // Calendar Icon Box
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.indigo.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.event, color: Colors.indigo, size: 32),
-                  ),
-                  const SizedBox(width: 16),
-
-
-                  // Text Info
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          event['title'],
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            return Card(
+              elevation: 2,
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => _showEventDetails(context, event),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade50,
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${event['date']} • ${event['time']}',
-                          style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                        child: const Icon(Icons.event, color: Colors.indigo, size: 32),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              event.title,
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${event.date} • ${event.time}',
+                              style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                      Icon(
+                          Icons.chevron_right,
+                          color: isFull ? Colors.red.shade300 : Colors.grey.shade400
+                      ),
+                    ],
                   ),
-                  Icon(
-                      Icons.chevron_right,
-                      color: isFull ? Colors.red.shade300 : Colors.grey.shade400
-                  ),
-                ],
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
   }
 }
-

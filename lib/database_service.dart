@@ -25,6 +25,28 @@ class DatabaseService {
     return await openDatabase(path, onCreate: _onCreate, version: 1);
   }
 
+  // --- EVENT METHODS ---
+  Future<int> insertEvent(EventModel event) async {
+    final db = await database;
+    return await db.insert('events', event.toMap());
+  }
+
+  Future<List<EventModel>> getEvents() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('events');
+    return List.generate(maps.length, (i) => EventModel.fromMap(maps[i]));
+  }
+
+  Future<void> incrementEventBooking(int eventId, int currentBooked) async {
+    final db = await database;
+    await db.update(
+      'events',
+      {'booked': currentBooked + 1},
+      where: 'id = ?',
+      whereArgs: [eventId],
+    );
+  }
+
   // Create the table schema[cite: 1]
   void _onCreate(Database db, int version) async {
     await db.execute(
@@ -44,6 +66,19 @@ class DatabaseService {
         role TEXT
       )
     ''');
+
+    await db.execute('''
+        CREATE TABLE events(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT,
+          speaker TEXT,
+          venue TEXT,
+          date TEXT,
+          time TEXT,
+          capacity INTEGER,
+          booked INTEGER
+        )
+      ''');
 
     await db.rawInsert('''
       INSERT INTO users (username, password, role) 

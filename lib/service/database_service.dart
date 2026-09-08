@@ -1,10 +1,9 @@
 import 'dart:developer';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
-import 'booking_model.dart';
-import 'event_registration_model.dart';
-
-// Note: You will also need your EventModel class.
+import '../model/booking_model.dart';
+import '../model/event_model.dart';
+import '../model/event_registration_model.dart';
 
 class DatabaseService {
   static final DatabaseService _databaseService = DatabaseService._internal();

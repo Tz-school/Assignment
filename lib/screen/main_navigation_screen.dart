@@ -39,7 +39,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.analytics),
-            label: 'Data Analysis',
+            label: 'Analysis',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.calendar_month),

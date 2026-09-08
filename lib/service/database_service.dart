@@ -249,4 +249,17 @@ class DatabaseService {
     }
     return null;
   }
+
+  // Admin: Get a list of accepted usernames for a specific event
+  Future<List<String>> getAcceptedParticipants(int eventId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.rawQuery('''
+      SELECT u.username 
+      FROM event_registrations er
+      JOIN users u ON er.userId = u.id
+      WHERE er.eventId = ? AND er.status = 'accepted'
+    ''', [eventId]);
+
+    return List.generate(maps.length, (i) => maps[i]['username'] as String);
+  }
 }

@@ -54,7 +54,6 @@ class _BookingPageState extends State<BookingPage> {
         floatingActionButton: isAdmin
             ? FloatingActionButton.extended(
           onPressed: () async {
-            // Navigate to full screen page instead of dialog
             final result = await Navigator.push(
               context,
               MaterialPageRoute(
@@ -62,7 +61,6 @@ class _BookingPageState extends State<BookingPage> {
               ),
             );
 
-            // If an event was created, trigger immediate state refresh
             if (result == true) {
               setState(() {
                 _refreshKey++;
@@ -79,7 +77,7 @@ class _BookingPageState extends State<BookingPage> {
           children: isAdmin
               ? [
             AdminWorkshopListView(
-              key: ValueKey(_refreshKey), // Forces refresh when returning
+              key: ValueKey(_refreshKey),
               dbService: DatabaseService(),
             ),
             AdminPendingRequestsView(dbService: DatabaseService()),

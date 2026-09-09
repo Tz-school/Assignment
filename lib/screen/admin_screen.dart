@@ -299,9 +299,6 @@ class _AdminWorkshopListViewState extends State<AdminWorkshopListView> {
   }
 }
 
-// ==========================================
-// ADMIN: EVENT DETAILS & PARTICIPANTS SCREEN
-// ==========================================
 class AdminEventDetailScreen extends StatefulWidget {
   final EventModel event;
   final DatabaseService dbService;
@@ -333,14 +330,14 @@ class _AdminEventDetailScreenState extends State<AdminEventDetailScreen> {
             ),
             TextButton(
               onPressed: () async {
-                Navigator.pop(dialogContext); // Close dialog
+                Navigator.pop(dialogContext);
                 if (widget.event.id != null) {
                   await widget.dbService.deleteEvent(widget.event.id!);
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Event deleted successfully!')),
                     );
-                    Navigator.pop(context, true); // Pop back with true to reload list
+                    Navigator.pop(context, true);
                   }
                 }
               },
@@ -366,7 +363,6 @@ class _AdminEventDetailScreenState extends State<AdminEventDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // --- EVENT SUMMARY CARD ---
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(
@@ -415,17 +411,14 @@ class _AdminEventDetailScreenState extends State<AdminEventDetailScreen> {
                 ),
               ),
             ),
-
             const SizedBox(height: 24),
             const Text(
-              'Registered Participants',
+              'Accepted Participants',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-
-            // --- PARTICIPANTS LIST ---
-            FutureBuilder<List<BookingModel>>(
-              future: widget.dbService.getBookings(),
+            FutureBuilder<List<String>>(
+              future: widget.dbService.getAcceptedParticipants(widget.event.id!),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Padding(
@@ -436,13 +429,7 @@ class _AdminEventDetailScreenState extends State<AdminEventDetailScreen> {
                   );
                 }
 
-                // Filter bookings matching this workshop
-                final participants = (snapshot.data ?? []).where((booking) {
-                  return booking.bookingType == 'Workshop: ${event.title}' ||
-                      booking.bookingType == event.title;
-                }).toList();
-
-                if (participants.isEmpty) {
+                if (!snapshot.hasData || snapshot.data!.isEmpty) {
                   return Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(20),
@@ -451,28 +438,28 @@ class _AdminEventDetailScreenState extends State<AdminEventDetailScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Text(
-                      'No students have reserved a slot for this event yet.',
+                      'No participants have been accepted yet.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey),
                     ),
                   );
                 }
 
+                final participants = snapshot.data!;
+
                 return ListView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: participants.length,
                   itemBuilder: (context, index) {
-                    final p = participants[index];
+                    final username = participants[index];
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 4),
                       child: ListTile(
                         leading: CircleAvatar(
                           backgroundColor: Colors.indigo.shade100,
                           child: Text(
-                            p.studentName.isNotEmpty
-                                ? p.studentName[0].toUpperCase()
-                                : 'S',
+                            username.isNotEmpty ? username[0].toUpperCase() : 'U',
                             style: const TextStyle(
                               color: Colors.indigo,
                               fontWeight: FontWeight.bold,
@@ -480,12 +467,11 @@ class _AdminEventDetailScreenState extends State<AdminEventDetailScreen> {
                           ),
                         ),
                         title: Text(
-                          p.studentName,
+                          username,
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        subtitle: Text('Booked on: ${p.date}'),
                         trailing: Chip(
-                          label: Text(p.status),
+                          label: const Text('ACCEPTED'),
                           backgroundColor: Colors.green.shade100,
                         ),
                       ),
@@ -494,10 +480,7 @@ class _AdminEventDetailScreenState extends State<AdminEventDetailScreen> {
                 );
               },
             ),
-
             const SizedBox(height: 32),
-
-            // --- DELETE EVENT BUTTON ---
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -524,8 +507,6 @@ class _AdminEventDetailScreenState extends State<AdminEventDetailScreen> {
   }
 }
 
-
-// --- ADMIN TAB 1: Accept or Reject ---
 class AdminPendingRequestsView extends StatefulWidget {
   final DatabaseService dbService;
   const AdminPendingRequestsView({super.key, required this.dbService});
@@ -545,7 +526,6 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
           return const Center(child: CircularProgressIndicator());
         }
 
-        // Filter only the 'pending' requests
         final pendingList = snapshot.data!
             .where((r) => r.status == 'pending')
             .toList();
@@ -617,18 +597,13 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
   }
 }
 
-
-
-// --- ADMIN TAB 2: Arrange Interviewers & Advisors ---
 class AdminAssignAdvisorView extends StatefulWidget {
   final DatabaseService dbService;
   const AdminAssignAdvisorView({super.key, required this.dbService});
 
-
   @override
   State<AdminAssignAdvisorView> createState() => _AdminAssignAdvisorViewState();
 }
-
 
 class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
   @override
@@ -642,12 +617,10 @@ class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
             .where((b) => b.status == 'Approved')
             .toList();
 
-
         if (approvedList.isEmpty)
           return const Center(
             child: Text('No approved bookings ready for assignment.'),
           );
-
 
         return ListView.builder(
           itemCount: approvedList.length,
@@ -674,7 +647,6 @@ class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
   }
 }
 
-// --- ADMIN TAB 3: All Bookings & Cancel Action ---
 class AllBookingsView extends StatefulWidget {
   final DatabaseService dbService;
   const AllBookingsView({super.key, required this.dbService});

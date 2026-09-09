@@ -104,13 +104,12 @@ class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
                       final userId = await DatabaseService().getUserId(widget.username);
 
                       if (userId != null && event.id != null) {
-                        // 1. Check for existing registration
                         final alreadyRegistered = await DatabaseService()
                             .hasUserRegistered(userId, event.id!);
 
                         if (alreadyRegistered) {
                           if (mounted) {
-                            Navigator.pop(context); // Close bottom sheet
+                            Navigator.pop(context);
                             messenger.showSnackBar(
                               const SnackBar(
                                 content: Text('You have already registered for this event.'),
@@ -119,14 +118,13 @@ class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
                               ),
                             );
                           }
-                          return; // Stop execution
+                          return;
                         }
 
-                        // 2. Submit if no duplicate found
                         await DatabaseService().registerForEvent(userId, event.id!);
 
                         if (mounted) {
-                          Navigator.pop(context); // Close bottom sheet
+                          Navigator.pop(context);
                           messenger.showSnackBar(
                             const SnackBar(
                               content: Text('Registration submitted! Waiting for Admin approval.'),
@@ -134,7 +132,7 @@ class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
                               duration: Duration(seconds: 3),
                             ),
                           );
-                          setState(() {}); // Refresh list view
+                          setState(() {});
                         }
                       }
                     },
@@ -225,18 +223,15 @@ class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
   }
 }
 
-// --- STUDENT TAB: Make a Booking ---
 class StudentBookingTab extends StatelessWidget {
   final String bookingType;
   final String username;
-
 
   const StudentBookingTab({
     super.key,
     required this.bookingType,
     required this.username,
   });
-
 
   @override
   Widget build(BuildContext context) {
@@ -278,7 +273,6 @@ class StudentBookingTab extends StatelessWidget {
   }
 }
 
-// --- STUDENT TAB: My Booking Status ---
 class StudentHistoryTab extends StatefulWidget {
   final String username;
   const StudentHistoryTab({super.key, required this.username});

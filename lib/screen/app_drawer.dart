@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'login_screen.dart';
+import 'profile_screen.dart'; // Import the profile & feedback screens
 
 class AppDrawer extends StatelessWidget {
   final String userRole;
@@ -58,16 +59,26 @@ class AppDrawer extends StatelessWidget {
               leading: const Icon(Icons.edit, color: Colors.indigo),
               title: const Text('Edit Profile'),
               onTap: () {
-                Navigator.pop(context);
-                // Navigator.push(context, MaterialPageRoute(builder: (context) => EditProfileScreen(username: username)));
+                Navigator.pop(context); // Close the drawer
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => EditProfileScreen(username: username),
+                  ),
+                );
               },
             ),
             ListTile(
               leading: const Icon(Icons.feedback_outlined, color: Colors.indigo),
               title: const Text('Submit Feedback'),
               onTap: () {
-                Navigator.pop(context);
-                // Navigator.push(context, MaterialPageRoute(builder: (context) => const FeedbackScreen()));
+                Navigator.pop(context); // Close the drawer
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const FeedbackScreen(),
+                  ),
+                );
               },
             ),
             const Spacer(),

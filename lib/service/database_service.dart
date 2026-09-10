@@ -51,6 +51,7 @@ class DatabaseService {
         CREATE TABLE events(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           title TEXT,
+          description TEXT,
           speaker TEXT,
           venue TEXT,
           date TEXT,
@@ -261,5 +262,19 @@ class DatabaseService {
     ''', [eventId]);
 
     return List.generate(maps.length, (i) => maps[i]['username'] as String);
+  }
+
+  Future<EventModel?> getEventById(int id) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'events',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+
+    if (maps.isNotEmpty) {
+      return EventModel.fromMap(maps.first);
+    }
+    return null;
   }
 }

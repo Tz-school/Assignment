@@ -1,6 +1,7 @@
 class EventModel {
   final int? id;
   final String title;
+  final String description;
   final String speaker;
   final String venue;
   final String date;
@@ -11,6 +12,7 @@ class EventModel {
   EventModel({
     this.id,
     required this.title,
+    required this.description,
     required this.speaker,
     required this.venue,
     required this.date,
@@ -23,6 +25,7 @@ class EventModel {
     return {
       'id': id,
       'title': title,
+      'description': description,
       'speaker': speaker,
       'venue': venue,
       'date': date,
@@ -35,13 +38,14 @@ class EventModel {
   factory EventModel.fromMap(Map<String, dynamic> map) {
     return EventModel(
       id: map['id'] as int?,
-      title: map['title'] as String? ?? '',
-      speaker: map['speaker'] as String? ?? '',
-      venue: map['venue'] as String? ?? '',
-      date: map['date'] as String? ?? '',
-      time: map['time'] as String? ?? '',
-      capacity: map['capacity'] as int? ?? 0,
-      booked: map['booked'] as int? ?? 0,
+      title: map['title'] ?? '',
+      description: map['description'] ?? '',
+      speaker: map['speaker'] ?? '',
+      venue: map['venue'] ?? '',
+      date: map['date'] ?? '',
+      time: map['time'] ?? '',
+      capacity: map['capacity'] ?? 0,
+      booked: map['booked'] ?? 0,
     );
   }
 }

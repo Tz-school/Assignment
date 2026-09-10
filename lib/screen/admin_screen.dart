@@ -16,6 +16,7 @@ class _CreateWorkshopScreenState extends State<CreateWorkshopScreen> {
   final _speakerController = TextEditingController();
   final _venueController = TextEditingController();
   final _limitController = TextEditingController();
+  final _descriptionController = TextEditingController();
 
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
@@ -26,6 +27,7 @@ class _CreateWorkshopScreenState extends State<CreateWorkshopScreen> {
     _speakerController.dispose();
     _venueController.dispose();
     _limitController.dispose();
+    _descriptionController.dispose();
     super.dispose();
   }
 
@@ -65,6 +67,7 @@ class _CreateWorkshopScreenState extends State<CreateWorkshopScreen> {
 
     final newEvent = EventModel(
       title: _titleController.text.trim(),
+      description: _descriptionController.text.trim(),
       speaker: _speakerController.text.trim(),
       venue: _venueController.text.trim(),
       date: dateStr,
@@ -101,6 +104,17 @@ class _CreateWorkshopScreenState extends State<CreateWorkshopScreen> {
                 hintText: 'e.g. Resume Masterclass',
                 border: OutlineInputBorder(),
               ),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _descriptionController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Event Description',
+                hintText: 'Provide details about the event...',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) => value!.isEmpty ? 'Required' : null,
             ),
             const SizedBox(height: 16),
             TextField(
@@ -407,6 +421,27 @@ class _AdminEventDetailScreenState extends State<AdminEventDetailScreen> {
                       ),
                       contentPadding: EdgeInsets.zero,
                     ),
+                    const Divider(height: 24),
+                    ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.description, color: Colors.indigo),
+                      title: const Text(
+                        'Event Description',
+                        style: TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                      children: [
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 16.0),
+                            child: Text(
+                              event.description.isEmpty ? 'N/A' : event.description,
+                              style: TextStyle(color: Colors.grey.shade800, height: 1.5),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -509,90 +544,377 @@ class _AdminEventDetailScreenState extends State<AdminEventDetailScreen> {
 
 class AdminPendingRequestsView extends StatefulWidget {
   final DatabaseService dbService;
+
   const AdminPendingRequestsView({super.key, required this.dbService});
 
   @override
-  State<AdminPendingRequestsView> createState() =>
-      _AdminPendingRequestsViewState();
+  State<AdminPendingRequestsView> createState() => _AdminPendingRequestsViewState();
 }
 
 class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
+  String _searchQuery = '';
+  String _sortOrder = 'Newest';
+
+  // State variables for data and selection
+  List<EventRegistrationModel> _allRegistrations = [];
+  bool _isLoading = true;
+  Set<String> _selectedKeys = {};
+
+  // NEW: State variable to control Batch Mode visibility
+  bool _isBatchMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    final data = await widget.dbService.getAllRegistrations();
+    if (mounted) {
+      setState(() {
+        _allRegistrations = data;
+        _isLoading = false;
+      });
+    }
+  }
+
+  List<EventRegistrationModel> get _displayedRequests {
+    List<EventRegistrationModel> list = _allRegistrations
+        .where((r) => r.status.toLowerCase() == 'pending')
+        .toList();
+
+    if (_searchQuery.isNotEmpty) {
+      list = list.where((r) {
+        final usernameMatch = (r.username ?? '').toLowerCase().contains(_searchQuery);
+        final titleMatch = (r.eventTitle ?? '').toLowerCase().contains(_searchQuery);
+        return usernameMatch || titleMatch;
+      }).toList();
+    }
+
+    list.sort((a, b) {
+      final dateA = DateTime.tryParse(a.date) ?? DateTime.now();
+      final dateB = DateTime.tryParse(b.date) ?? DateTime.now();
+      if (_sortOrder == 'Newest') {
+        return dateB.compareTo(dateA);
+      } else {
+        return dateA.compareTo(dateB);
+      }
+    });
+
+    return list;
+  }
+
+  void _updateStatus(int userId, int eventId, String newStatus) async {
+    setState(() => _isLoading = true);
+    await widget.dbService.updateRegistrationStatus(userId, eventId, newStatus);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Request $newStatus successfully.'),
+          backgroundColor: newStatus == 'accepted' ? Colors.green : Colors.red,
+        ),
+      );
+      _selectedKeys.remove("${userId}_${eventId}");
+      await _loadData();
+    }
+  }
+
+  void _batchUpdateStatus(String newStatus) async {
+    if (_selectedKeys.isEmpty) return;
+
+    setState(() => _isLoading = true);
+    for (String key in _selectedKeys) {
+      final parts = key.split('_');
+      final userId = int.parse(parts[0]);
+      final eventId = int.parse(parts[1]);
+      await widget.dbService.updateRegistrationStatus(userId, eventId, newStatus);
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${_selectedKeys.length} requests $newStatus successfully.'),
+          backgroundColor: newStatus == 'accepted' ? Colors.green : Colors.red,
+        ),
+      );
+      _selectedKeys.clear();
+      _isBatchMode = false; // Exit batch mode after completion
+      await _loadData();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<EventRegistrationModel>>(
-      future: widget.dbService.getAllRegistrations(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
+    final displayedList = _displayedRequests;
+    final allSelected = displayedList.isNotEmpty && _selectedKeys.length == displayedList.length;
 
-        final pendingList = snapshot.data!
-            .where((r) => r.status == 'pending')
-            .toList();
-
-        if (pendingList.isEmpty) {
-          return const Center(child: Text('No pending requests to review.'));
-        }
-
-        return ListView.builder(
-          itemCount: pendingList.length,
-          itemBuilder: (context, index) {
-            final r = pendingList[index];
-            return Card(
-              margin: const EdgeInsets.all(8),
-              child: ListTile(
-                title: Text('${r.eventTitle} - ${r.username}'),
-                subtitle: Text('Requested Date: ${r.date} at ${r.time}'),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.check, color: Colors.green),
-                      onPressed: () async {
-                        final messenger = ScaffoldMessenger.of(context);
-
-                        await widget.dbService.updateRegistrationStatus(
-                            r.registrationId, r.eventId, 'accepted'
-                        );
-
-                        if (mounted) {
-                          messenger.showSnackBar(
-                            SnackBar(
-                              content: Text('Registration for ${r.username} accepted!'),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
-                          setState(() {});
-                        }
-                      },
+    return Column(
+      children: [
+        // 1. Search, Filter, and Toggle Batch Mode Bar
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  decoration: InputDecoration(
+                    hintText: 'Search student or event...',
+                    prefixIcon: const Icon(Icons.search, color: Colors.indigo),
+                    filled: true,
+                    fillColor: Colors.grey.shade100,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.red),
-                      onPressed: () async {
-                        final messenger = ScaffoldMessenger.of(context);
-
-                        await widget.dbService.updateRegistrationStatus(
-                            r.registrationId, r.eventId, 'rejected'
-                        );
-
-                        if (mounted) {
-                          messenger.showSnackBar(
-                            SnackBar(
-                              content: Text('Registration for ${r.username} rejected.'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                          setState(() {});
-                        }
-                      },
-                    ),
-                  ],
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      _searchQuery = value.toLowerCase();
+                    });
+                  },
                 ),
               ),
-            );
-          },
-        );
-      },
+              const SizedBox(width: 8),
+
+              // Filter Dropdown
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.indigo.shade100),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _sortOrder,
+                    icon: const Icon(Icons.sort, color: Colors.indigo, size: 20),
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo, fontSize: 13),
+                    items: ['Newest', 'Oldest'].map((String value) {
+                      return DropdownMenuItem<String>(
+                        value: value,
+                        child: Text(value),
+                      );
+                    }).toList(),
+                    onChanged: (newValue) {
+                      if (newValue != null) {
+                        setState(() {
+                          _sortOrder = newValue;
+                        });
+                      }
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // Toggle Batch Mode Button
+              IconButton(
+                onPressed: () {
+                  setState(() {
+                    _isBatchMode = !_isBatchMode;
+                    _selectedKeys.clear(); // Clear selections when toggling
+                  });
+                },
+                icon: Icon(_isBatchMode ? Icons.cancel : Icons.checklist),
+                color: _isBatchMode ? Colors.red : Colors.indigo,
+                tooltip: _isBatchMode ? 'Cancel Batch Selection' : 'Enable Batch Selection',
+              ),
+            ],
+          ),
+        ),
+
+        // 2. Batch Select & Action Bar (ONLY SHOWS IF BATCH MODE IS ON)
+        if (_isBatchMode) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: Colors.grey.shade50,
+            child: Row(
+              children: [
+                Checkbox(
+                  value: allSelected,
+                  activeColor: Colors.indigo,
+                  onChanged: displayedList.isEmpty ? null : (bool? checked) {
+                    setState(() {
+                      if (checked == true) {
+                        _selectedKeys = displayedList.map((r) => "${r.userId}_${r.eventId}").toSet();
+                      } else {
+                        _selectedKeys.clear();
+                      }
+                    });
+                  },
+                ),
+                const Text('Select All', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Spacer(),
+                if (_selectedKeys.isNotEmpty) ...[
+                  TextButton.icon(
+                    onPressed: () => _batchUpdateStatus('rejected'),
+                    icon: const Icon(Icons.close, color: Colors.red, size: 20),
+                    label: const Text('Reject', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: () => _batchUpdateStatus('accepted'),
+                    icon: const Icon(Icons.check, size: 20),
+                    label: Text('Accept (${_selectedKeys.length})'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ]
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+        ],
+
+        // 3. List of Pending Requests
+        Expanded(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : displayedList.isEmpty
+              ? Center(
+            child: Text(
+              'No pending requests match your search.',
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
+          )
+              : ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            itemCount: displayedList.length,
+            itemBuilder: (context, index) {
+              final req = displayedList[index];
+              final String itemKey = "${req.userId}_${req.eventId}";
+              final bool isSelected = _selectedKeys.contains(itemKey);
+              return Card(
+                elevation: isSelected ? 4 : 2,
+                margin: const EdgeInsets.only(bottom: 12),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                        color: isSelected ? Colors.indigo.shade300 : Colors.transparent,
+                        width: 2
+                    )
+                ),
+                // 1. Wrap the card's content in an InkWell
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  // 2. Only enable the tap if Batch Mode is ON
+                  onTap: _isBatchMode
+                      ? () {
+                    setState(() {
+                      if (isSelected) {
+                        _selectedKeys.remove(itemKey);
+                      } else {
+                        _selectedKeys.add(itemKey);
+                      }
+                    });
+                  }
+                      : null, // Do nothing if normal mode
+                  child: Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (_isBatchMode)
+                          Checkbox(
+                            value: isSelected,
+                            activeColor: Colors.indigo,
+                            onChanged: (bool? checked) {
+                              setState(() {
+                                if (checked == true) {
+                                  _selectedKeys.add(itemKey);
+                                } else {
+                                  _selectedKeys.remove(itemKey);
+                                }
+                              });
+                            },
+                          ),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 4.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  req.eventTitle ?? '',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    const Icon(Icons.person, size: 16, color: Colors.indigo),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Student: ${req.username}',
+                                      style: TextStyle(color: Colors.grey.shade800),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Icon(Icons.calendar_today, size: 16, color: Colors.indigo),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      '${req.date} at ${req.time}',
+                                      style: TextStyle(color: Colors.grey.shade800),
+                                    ),
+                                  ],
+                                ),
+
+                                if (!_isBatchMode) ...[
+                                  const SizedBox(height: 16),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          onPressed: () => _updateStatus(req.userId!, req.eventId, 'rejected'),
+                                          icon: const Icon(Icons.close, color: Colors.red),
+                                          label: const Text('Reject', style: TextStyle(color: Colors.red)),
+                                          style: OutlinedButton.styleFrom(
+                                            side: BorderSide(color: Colors.red.shade200),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          onPressed: () => _updateStatus(req.userId!, req.eventId, 'accepted'),
+                                          icon: const Icon(Icons.check),
+                                          label: const Text('Accept'),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.green,
+                                            foregroundColor: Colors.white,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

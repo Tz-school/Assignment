@@ -15,6 +15,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _confirmPasswordController = TextEditingController();
 
   bool _isRegistering = false; // Toggles between Login and Register views
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
 
   String? _validatePassword(String password) {
     /*
@@ -61,7 +63,6 @@ class _LoginScreenState extends State<LoginScreen> {
         return; // Stop the registration process
       }
 
-
       // 2. Check if passwords match
       if (password != confirmPassword) {
         ScaffoldMessenger.of(
@@ -70,18 +71,15 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-
       // 3. Register the user
       try {
         await DatabaseService().registerUser(username, password, 'student');
-
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Registration successful! Logging in...'),
           ),
         );
-
 
         _navigateToMain(username: username, role: 'student');
       } catch (e) {
@@ -90,15 +88,11 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     } else {
-      // --- LOGIN LOGIC WITH HARDCODED ADMIN ---
-
-
       // 1. HARDCODED ADMIN CHECK
       if (username == 'admin' && password == 'admin123') {
         _navigateToMain(username: 'System Admin', role: 'admin');
         return;
       }
-
 
       // 2. CHECK DATABASE FOR OTHER USERS (Registered Students)
       final user = await DatabaseService().loginUser(username, password);
@@ -112,7 +106,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-
   void _navigateToMain({required String username, required String role}) {
     Navigator.pushReplacement(
       context,
@@ -122,7 +115,6 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -155,7 +147,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 24),
 
-
                   // Username Field
                   TextField(
                     controller: _usernameController,
@@ -167,34 +158,55 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 16),
 
-
                   // Password Field
                   TextField(
                     controller: _passwordController,
-                    obscureText: true,
-                    decoration: const InputDecoration(
+                    obscureText: _obscurePassword,
+                    decoration: InputDecoration(
                       labelText: 'Password',
-                      prefixIcon: Icon(Icons.lock),
-                      border: OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.lock),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _obscurePassword = !_obscurePassword;
+                          });
+                        },
+                      ),
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 16),
-
 
                   // Confirm Password Field (Only shown during registration)
                   if (_isRegistering) ...[
                     TextField(
                       controller: _confirmPasswordController,
-                      obscureText: true,
-                      decoration: const InputDecoration(
+                      obscureText: _obscureConfirmPassword,
+                      decoration: InputDecoration(
                         labelText: 'Confirm Password',
-                        prefixIcon: Icon(Icons.lock_outline),
-                        border: OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscureConfirmPassword
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _obscureConfirmPassword = !_obscureConfirmPassword;
+                            });
+                          },
+                        ),
+                        border: const OutlineInputBorder(),
                       ),
                     ),
                     const SizedBox(height: 16),
                   ],
-
 
                   // Submit Button
                   ElevatedButton(
@@ -210,7 +222,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-
 
                   // Mode Toggle Button (Login <-> Register)
                   TextButton(

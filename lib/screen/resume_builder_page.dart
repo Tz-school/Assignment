@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'app_drawer.dart';
 import '../model/resume_model.dart';
+import '../service/database_service.dart';
 import 'package:flutter/services.dart';
 
 class IndustryPage extends StatelessWidget {
@@ -52,7 +53,33 @@ class ResumeHomeTab extends StatefulWidget {
 }
 
 class _ResumeHomeTabState extends State<ResumeHomeTab> {
-  final List<ResumeData> _resumeList = [];
+  List<ResumeData> _resumeList = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadResumes();
+  }
+
+  Future<void> _loadResumes() async {
+    try {
+      final list = await DatabaseService().getAllResumes();
+      if (mounted) {
+        setState(() {
+          _resumeList = list;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error reading resumes: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
 
   void _createNewResume() async {
     final ResumeData? newData = await Navigator.push(
@@ -63,24 +90,47 @@ class _ResumeHomeTabState extends State<ResumeHomeTab> {
     );
 
     if (newData != null) {
-      setState(() {
-        _resumeList.add(newData);
-      });
+      try {
+        int insertedId = await DatabaseService().insertResume(newData);
+        await _loadResumes();
 
-      if (!mounted) return;
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ResumeResultPage(
-            data: newData,
-            onSave: (updatedData) {
-              setState(() {
-                _resumeList[_resumeList.length - 1] = updatedData;
-              });
-            },
+        if (!mounted) return;
+
+        final savedResume = ResumeData(
+          id: insertedId,
+          profileImage: newData.profileImage,
+          certificateImage: newData.certificateImage,
+          fullName: newData.fullName,
+          age: newData.age,
+          gender: newData.gender,
+          email: newData.email,
+          phone: newData.phone,
+          address: newData.address,
+          summary: newData.summary,
+          experience: newData.experience,
+          education: newData.education,
+        );
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ResumeResultPage(
+              data: savedResume,
+              onSave: (updatedData) async {
+                await DatabaseService().updateResume(updatedData);
+                _loadResumes();
+              },
+            ),
           ),
-        ),
-      );
+        );
+      } catch (e) {
+        debugPrint('Save error: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to save resume: $e')),
+          );
+        }
+      }
     }
   }
 
@@ -97,7 +147,7 @@ class _ResumeHomeTabState extends State<ResumeHomeTab> {
       MaterialPageRoute(
         builder: (context) => ResumeHistoryPage(
           resumeList: _resumeList,
-          onUpdateList: () => setState(() {}),
+          onUpdateList: _loadResumes,
         ),
       ),
     );
@@ -105,6 +155,10 @@ class _ResumeHomeTabState extends State<ResumeHomeTab> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24.0),
@@ -156,9 +210,7 @@ class ResumeHistoryPage extends StatefulWidget {
 }
 
 class _ResumeHistoryPageState extends State<ResumeHistoryPage> {
-  Future<void> _showDeleteDialog(BuildContext context, int index) async {
-    final String resumeName = widget.resumeList[index].fullName;
-
+  Future<void> _showDeleteDialog(BuildContext context, ResumeData resume) async {
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -166,7 +218,7 @@ class _ResumeHistoryPageState extends State<ResumeHistoryPage> {
         return AlertDialog(
           title: const Text('Delete Resume'),
           content: Text(
-            'Are you sure you want to delete the resume for "$resumeName"? This action cannot be undone.',
+            'Are you sure you want to delete the resume for "${resume.fullName}"? This action cannot be undone.',
           ),
           actions: <Widget>[
             TextButton(
@@ -176,14 +228,15 @@ class _ResumeHistoryPageState extends State<ResumeHistoryPage> {
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
               child: const Text('Delete', style: TextStyle(color: Colors.white)),
-              onPressed: () {
-                setState(() {
-                  widget.resumeList.removeAt(index);
-                });
+              onPressed: () async {
+                if (resume.id != null) {
+                  await DatabaseService().deleteResume(resume.id!);
+                }
                 widget.onUpdateList();
+                if (!context.mounted) return;
                 Navigator.of(context).pop();
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Resume for $resumeName deleted.')),
+                  SnackBar(content: Text('Resume for ${resume.fullName} deleted.')),
                 );
               },
             ),
@@ -216,10 +269,10 @@ class _ResumeHistoryPageState extends State<ResumeHistoryPage> {
                 resume.fullName,
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
-              subtitle: Text('${resume.email} • Age ${resume.age}'),
+              subtitle: Text('${resume.gender} • Age ${resume.age} • ${resume.email}'),
               trailing: IconButton(
                 icon: const Icon(Icons.delete, color: Colors.red),
-                onPressed: () => _showDeleteDialog(context, index),
+                onPressed: () => _showDeleteDialog(context, resume),
               ),
               onTap: () {
                 Navigator.push(
@@ -227,10 +280,8 @@ class _ResumeHistoryPageState extends State<ResumeHistoryPage> {
                   MaterialPageRoute(
                     builder: (context) => ResumeResultPage(
                       data: resume,
-                      onSave: (updatedData) {
-                        setState(() {
-                          widget.resumeList[index] = updatedData;
-                        });
+                      onSave: (updatedData) async {
+                        await DatabaseService().updateResume(updatedData);
                         widget.onUpdateList();
                       },
                     ),
@@ -268,18 +319,18 @@ class _ResumeBuilderFormState extends State<ResumeBuilderForm> {
   late TextEditingController _experienceController;
   late TextEditingController _educationController;
 
+  String? _selectedGender;
   File? _profileImage;
   File? _certificateImage;
 
-  @override
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.initialData?.fullName ?? '');
     _ageController = TextEditingController(text: widget.initialData?.age ?? '');
     _emailController = TextEditingController(text: widget.initialData?.email ?? '');
+    _selectedGender = widget.initialData?.gender;
 
-    // Clean initial phone string for editing
     String initialPhone = widget.initialData?.phone ?? '';
     if (initialPhone.startsWith('+60')) {
       initialPhone = initialPhone.replaceFirst('+60', '').trim();
@@ -395,16 +446,15 @@ class _ResumeBuilderFormState extends State<ResumeBuilderForm> {
     }
 
     if (_formKey.currentState!.validate()) {
-      // Combine prefix with input digits
-      final String fullPhone = '+60 ${_phoneController.text.trim()}';
-
       ResumeData newData = ResumeData(
+        id: widget.initialData?.id,
         profileImage: _profileImage!,
         certificateImage: _certificateImage,
         fullName: _nameController.text,
         age: _ageController.text,
+        gender: _selectedGender!,
         email: _emailController.text,
-        phone: fullPhone, // Saves as "+60 123456789"
+        phone: '+60 ${_phoneController.text.trim()}',
         address: _addressController.text,
         summary: _summaryController.text,
         experience: _experienceController.text,
@@ -472,6 +522,27 @@ class _ResumeBuilderFormState extends State<ResumeBuilderForm> {
                       ),
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _selectedGender,
+                      decoration: const InputDecoration(
+                        labelText: 'Gender',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'Male', child: Text('Male')),
+                        DropdownMenuItem(value: 'Female', child: Text('Female')),
+                      ],
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedGender = value;
+                        });
+                      },
+                      validator: (value) => value == null ? 'Required' : null,
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -491,19 +562,18 @@ class _ResumeBuilderFormState extends State<ResumeBuilderForm> {
                       decoration: const InputDecoration(
                         labelText: 'Phone Number',
                         hintText: '123456789',
-                        prefixText: '+60 ', // Displays fixed +60 prefix in UI
+                        prefixText: '+60 ',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.phone),
                       ),
                       keyboardType: TextInputType.number,
                       inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly, // Restricts keyboard input to numbers only
+                        FilteringTextInputFormatter.digitsOnly,
                       ],
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
                           return 'Please enter phone number';
                         }
-                        // Validates Malaysian phone numbers (8 to 10 digits following +60)
                         final myPhoneRegex = RegExp(r'^[1-9]\d{7,9}$');
                         if (!myPhoneRegex.hasMatch(value.trim())) {
                           return 'Enter valid MY number (e.g. 123456789)';
@@ -638,7 +708,7 @@ class _ResumeResultPageState extends State<ResumeResultPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(_currentData.fullName.toUpperCase(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                          Text('${_currentData.age} years old', style: const TextStyle(fontSize: 14, fontStyle: FontStyle.italic)),
+                          Text('${_currentData.gender}  •  ${_currentData.age} years old', style: const TextStyle(fontSize: 14, fontStyle: FontStyle.italic)),
                           Text('${_currentData.email}  •  ${_currentData.phone}', style: const TextStyle(fontSize: 13, color: Colors.grey)),
                         ],
                       ),

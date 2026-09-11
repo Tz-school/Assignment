@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 import '../model/booking_model.dart';
 import '../model/event_model.dart';
 import '../model/event_registration_model.dart';
+import '../model/resume_model.dart';
 
 class DatabaseService {
   static final DatabaseService _databaseService = DatabaseService._internal();
@@ -12,23 +13,44 @@ class DatabaseService {
 
   static Database? _database;
 
-  // Get an instance of the database
   Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await initDatabase();
     return _database!;
   }
 
-  // Initialize the database and establish the file path
   Future<Database> initDatabase() async {
     final getDirectory = await getApplicationDocumentsDirectory();
     String path = '${getDirectory.path}/bookings.db';
     log(path);
-    return await openDatabase(path, onCreate: _onCreate, version: 1);
+    return await openDatabase(
+      path,
+      onCreate: _onCreate,
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS resumes (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              profileImage TEXT NOT NULL,
+              certificateImage TEXT,
+              fullName TEXT NOT NULL,
+              age TEXT NOT NULL,
+              gender TEXT NOT NULL,
+              email TEXT NOT NULL,
+              phone TEXT NOT NULL,
+              address TEXT NOT NULL,
+              summary TEXT NOT NULL,
+              experience TEXT NOT NULL,
+              education TEXT NOT NULL
+            )
+          ''');
+        }
+      },
+      version: 2,
+    );
   }
 
-  // Create the table schema
-  void _onCreate(Database db, int version) async {
+  Future<void> _onCreate(Database db, int version) async {
     await db.execute(
       'CREATE TABLE Bookings('
           'id INTEGER PRIMARY KEY AUTOINCREMENT, '
@@ -61,7 +83,6 @@ class DatabaseService {
         )
       ''');
 
-    // NEW TABLE: To handle student registrations and admin approvals
     await db.execute('''
       CREATE TABLE event_registrations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,10 +95,59 @@ class DatabaseService {
     ''');
     log('TABLE event_registrations CREATED');
 
+    await db.execute('''
+      CREATE TABLE resumes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profileImage TEXT NOT NULL,
+        certificateImage TEXT,
+        fullName TEXT NOT NULL,
+        age TEXT NOT NULL,
+        gender TEXT NOT NULL,
+        email TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        address TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        experience TEXT NOT NULL,
+        education TEXT NOT NULL
+      )
+    ''');
+    log('TABLE resumes CREATED');
+
     await db.rawInsert('''
       INSERT INTO users (username, password, role) 
       VALUES ('admin', 'admin123', 'admin')
     ''');
+  }
+
+  // --- RESUME METHODS ---
+  Future<int> insertResume(ResumeData resume) async {
+    final db = await database;
+    return await db.insert('resumes', resume.toMap());
+  }
+
+  Future<List<ResumeData>> getAllResumes() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('resumes', orderBy: 'id DESC');
+    return List.generate(maps.length, (i) => ResumeData.fromMap(maps[i]));
+  }
+
+  Future<int> updateResume(ResumeData resume) async {
+    final db = await database;
+    return await db.update(
+      'resumes',
+      resume.toMap(),
+      where: 'id = ?',
+      whereArgs: [resume.id],
+    );
+  }
+
+  Future<int> deleteResume(int id) async {
+    final db = await database;
+    return await db.delete(
+      'resumes',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   // --- EVENT METHODS ---
@@ -108,7 +178,6 @@ class DatabaseService {
   }
 
   // --- REGISTRATION & APPROVAL LOGIC ---
-  // Helper to get user ID by username
   Future<int?> getUserId(String username) async {
     final db = await database;
     var results = await db.query(
@@ -123,7 +192,6 @@ class DatabaseService {
     return null;
   }
 
-  // Check if a user has already registered for an event
   Future<bool> hasUserRegistered(int userId, int eventId) async {
     final db = await database;
     final result = await db.query(
@@ -134,10 +202,8 @@ class DatabaseService {
     return result.isNotEmpty;
   }
 
-  // Student: Register for an event time slot
   Future<int> registerForEvent(int userId, int eventId) async {
     final db = await database;
-    // Defaults to 'pending' as defined in table creation
     return await db.insert('event_registrations', {
       'userId': userId,
       'eventId': eventId,
@@ -145,7 +211,6 @@ class DatabaseService {
     });
   }
 
-  // Student: View their own registrations
   Future<List<EventRegistrationModel>> getUserRegistrations(int userId) async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.rawQuery('''
@@ -159,7 +224,6 @@ class DatabaseService {
     return List.generate(maps.length, (i) => EventRegistrationModel.fromMap(maps[i]));
   }
 
-  // Admin: View all registrations to accept or reject
   Future<List<EventRegistrationModel>> getAllRegistrations() async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.rawQuery('''
@@ -174,11 +238,9 @@ class DatabaseService {
     return List.generate(maps.length, (i) => EventRegistrationModel.fromMap(maps[i]));
   }
 
-  // Admin: Update registration status (Accept or Reject)
   Future<void> updateRegistrationStatus(int registrationId, int eventId, String newStatus) async {
     final db = await database;
 
-    // Update the registration status to 'accepted' or 'rejected'
     await db.update(
       'event_registrations',
       {'status': newStatus},
@@ -186,7 +248,6 @@ class DatabaseService {
       whereArgs: [registrationId],
     );
 
-    // If accepted, increment the event's booked capacity automatically
     if (newStatus.toLowerCase() == 'accepted') {
       await db.rawUpdate(
           'UPDATE events SET booked = booked + 1 WHERE id = ?',
@@ -195,24 +256,23 @@ class DatabaseService {
     }
   }
 
-  // --- EXISTING BOOKING METHODS ---
+  // --- BOOKING METHODS ---
   Future<List<BookingModel>> getBookings() async {
-    final db = await _databaseService.database;
+    final db = await database;
     var data = await db.query('Bookings');
-    List<BookingModel> bookings = List.generate(
+    return List.generate(
       data.length,
           (index) => BookingModel.fromJson(data[index]),
     );
-    return bookings;
   }
 
   Future<void> insertBooking(BookingModel booking) async {
-    final db = await _databaseService.database;
+    final db = await database;
     await db.insert('Bookings', booking.toMap());
   }
 
   Future<void> editBooking(BookingModel booking) async {
-    final db = await _databaseService.database;
+    final db = await database;
     var data = await db.update(
       'Bookings',
       booking.toMap(),
@@ -223,7 +283,7 @@ class DatabaseService {
   }
 
   Future<void> deleteBooking(int id) async {
-    final db = await _databaseService.database;
+    final db = await database;
     var data = await db.delete('Bookings', where: 'id=?', whereArgs: [id]);
     log('deleted $data');
   }
@@ -251,7 +311,6 @@ class DatabaseService {
     return null;
   }
 
-  // Admin: Get a list of accepted usernames for a specific event
   Future<List<String>> getAcceptedParticipants(int eventId) async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.rawQuery('''

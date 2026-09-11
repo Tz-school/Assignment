@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'career_planner_page.dart';
 import 'data_analysis_page.dart';
 import 'booking_page.dart';
-import 'industry_page.dart';
+import 'resume_builder_page.dart';
 
 class MainNavigationScreen extends StatefulWidget {
   final String userRole;

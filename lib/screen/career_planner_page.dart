@@ -1,44 +1,1685 @@
+import 'dart:convert';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'app_drawer.dart';
 
-class CareerPlannerPage extends StatelessWidget {
-  final String userRole;
-  final String username;
+class Course {
+  const Course({
+    required this.id,
+    required this.name,
+    required this.career,
+    required this.years,
+    required this.tuition,
+    required this.salary,
+    required this.demand,
+    required this.growth,
+    required this.tags,
+    required this.preparation,
+  });
+  final String id, name, career, preparation;
+  final int years;
 
-  const CareerPlannerPage({super.key, required this.userRole, required this.username});
+  final double tuition, salary, demand, growth;
+  final Set<String> tags;
+}
+
+class QuizQuestion {
+  const QuizQuestion(this.id, this.title, this.options);
+  final String id, title;
+  final Map<String, String> options;
+}
+
+class CareerGoal {
+  CareerGoal({
+    required this.id,
+    required this.courseId,
+    required this.title,
+    required this.salary,
+    required this.targetDate,
+    this.done = false,
+  });
+  final String id, courseId, title;
+  final double salary;
+  final DateTime targetDate;
+  bool done;
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'courseId': courseId,
+    'title': title,
+    'salary': salary,
+    'targetDate': targetDate.toIso8601String(),
+    'done': done,
+  };
+  factory CareerGoal.fromJson(Map<String, dynamic> j) => CareerGoal(
+    id: j['id'] as String,
+    courseId: j['courseId'] as String,
+    title: j['title'] as String,
+    salary: (j['salary'] as num).toDouble(),
+    targetDate: DateTime.parse(j['targetDate'] as String),
+    done: j['done'] as bool? ?? false,
+  );
+}
+
+const courses = <Course>[
+  Course(
+    id: 'cs',
+    name: 'Computer Science',
+    career: 'Software Developer',
+    years: 3,
+    tuition: 36000,
+    salary: 3400,
+    demand: 85,
+    growth: 0.05,
+    tags: {'technology', 'logic', 'math', 'office'},
+    preparation: 'Build a small app and practise programming fundamentals.',
+  ),
+  Course(
+    id: 'engineering',
+    name: 'Electrical Engineering',
+    career: 'Electrical Engineer',
+    years: 4,
+    tuition: 44000,
+    salary: 3300,
+    demand: 78,
+    growth: 0.045,
+    tags: {'technology', 'practical', 'science', 'field'},
+    preparation: 'Build a circuit project and research accredited programmes.',
+  ),
+  Course(
+    id: 'business',
+    name: 'Business Administration',
+    career: 'Business Analyst',
+    years: 3,
+    tuition: 30000,
+    salary: 2900,
+    demand: 72,
+    growth: 0.04,
+    tags: {'business', 'logic', 'math', 'office'},
+    preparation: 'Practise spreadsheets and analyse a small business case.',
+  ),
+  Course(
+    id: 'design',
+    name: 'Digital Design',
+    career: 'UX Designer',
+    years: 3,
+    tuition: 39000,
+    salary: 3000,
+    demand: 70,
+    growth: 0.045,
+    tags: {'creative', 'creative_skill', 'arts', 'flexible'},
+    preparation: 'Create a portfolio with three design projects.',
+  ),
+  Course(
+    id: 'education',
+    name: 'Education',
+    career: 'Educator',
+    years: 4,
+    tuition: 24000,
+    salary: 2700,
+    demand: 65,
+    growth: 0.03,
+    tags: {'people', 'communication', 'languages', 'community'},
+    preparation: 'Try peer tutoring and check teaching pathway requirements.',
+  ),
+  Course(
+    id: 'health',
+    name: 'Nursing',
+    career: 'Nurse',
+    years: 4,
+    tuition: 40000,
+    salary: 2800,
+    demand: 82,
+    growth: 0.035,
+    tags: {'people', 'practical', 'science', 'community'},
+    preparation:
+    'Explore care work and check programme and registration requirements.',
+  ),
+];
+const locationCosts = <String, double>{
+  'Kuala Lumpur': 2100,
+  'Penang': 1750,
+  'Johor Bahru': 1700,
+  'Ipoh': 1350,
+  'Kuching': 1500,
+  'Kota Kinabalu': 1650,
+};
+const quizQuestions = <QuizQuestion>[
+  QuizQuestion('interest', '1. Which activity interests you most?', {
+    'Building digital tools': 'technology',
+    'Helping people learn or recover': 'people',
+    'Running a business': 'business',
+    'Creating visual experiences': 'creative',
+  }),
+  QuizQuestion('skill', '2. Which skill do you enjoy using?', {
+    'Solving logical problems': 'logic',
+    'Hands-on practical work': 'practical',
+    'Explaining ideas to others': 'communication',
+    'Designing original work': 'creative_skill',
+  }),
+  QuizQuestion('subject', '3. Which school subject do you prefer?', {
+    'Mathematics': 'math',
+    'Science': 'science',
+    'Languages': 'languages',
+    'Art and design': 'arts',
+  }),
+  QuizQuestion('preference', '4. What work setting appeals to you?', {
+    'An office or analytical team': 'office',
+    'Sites, labs or equipment': 'field',
+    'A creative, flexible environment': 'flexible',
+    'Direct community service': 'community',
+  }),
+];
+List<String> roadmapFor(Course c) => [
+  'High school: review subjects, entry requirements and your interests.',
+  'Before applying: compare fees, scholarships and recognised programmes.',
+  'University entry: enrol in ${c.name} and set a study budget.',
+  'During ${c.years} years of study: ${c.preparation}',
+  'Internship: apply for supervised experience relevant to ${c.career}.',
+  'Employment: prepare your CV and apply for ${c.career} roles.',
+];
+
+class Projection {
+  const Projection({
+    required this.investment,
+    required this.monthlySurplus,
+    required this.balanceByYear,
+    required this.paybackYears,
+  });
+  final double investment, monthlySurplus;
+
+  final List<double> balanceByYear;
+  final double? paybackYears;
+  double get netAfter15Years => balanceByYear.last;
+}
+
+class CareerScore {
+  const CareerScore(this.course, this.suitability, this.financial, this.total);
+  final Course course;
+  final double suitability, financial, total;
+}
+
+class CareerEngine {
+  static double suitability(Course c, Map<String, String> answers) {
+    if (answers.length != quizQuestions.length ||
+        quizQuestions.any((q) => !q.options.values.contains(answers[q.id]))) {
+      throw ArgumentError('Complete all four quiz questions first.');
+    }
+    return quizQuestions.where((q) => c.tags.contains(answers[q.id])).length /
+        quizQuestions.length *
+        100;
+  }
+
+  static Projection project({
+    required Course course,
+    required double salary,
+    required double livingCost,
+    required double tuition,
+    required double studentLivingCost,
+    double foregoneMonthlyPay = 0,
+    double? salaryGrowth,
+    double costGrowth = 0.025,
+  }) {
+    final growth = salaryGrowth ?? course.growth;
+    for (final n in [
+      salary,
+      livingCost,
+      tuition,
+      studentLivingCost,
+      foregoneMonthlyPay,
+    ]) {
+      if (!n.isFinite || n < 0) {
+        throw ArgumentError('Amounts must be finite and non-negative.');
+      }
+    }
+    if (course.years <= 0 ||
+        !growth.isFinite ||
+        growth <= -1 ||
+        growth > 1 ||
+        !costGrowth.isFinite ||
+        costGrowth <= -1 ||
+        costGrowth > 1) {
+      throw ArgumentError('Invalid duration or annual growth.');
+    }
+    final investment =
+        tuition + (studentLivingCost + foregoneMonthlyPay) * course.years * 12;
+    var balance = -investment;
+    final balances = <double>[balance];
+    double? payback = investment == 0 ? 0 : null;
+    for (var year = 0; year < 15; year++) {
+      final income = salary * math.pow(1 + growth, year);
+      final expenses = livingCost * math.pow(1 + costGrowth, year);
+      final surplus = (income - expenses) * 12;
+      if (payback == null &&
+          balance < 0 &&
+          surplus > 0 &&
+          balance + surplus >= 0) {
+        payback = year + (-balance / surplus);
+      }
+      balance += surplus;
+      balances.add(balance);
+    }
+    return Projection(
+      investment: investment,
+      monthlySurplus: salary - livingCost,
+      balanceByYear: List.unmodifiable(balances),
+      paybackYears: payback,
+    );
+  }
+
+  static List<CareerScore> rank(
+      Map<String, String> answers,
+      double livingCost, {
+        double? monthlySalary,
+      }) {
+    final scores = courses.map((c) {
+      final fit = suitability(c, answers);
+      final p = project(
+        course: c,
+        salary: monthlySalary ?? c.salary,
+        livingCost: livingCost,
+        tuition: c.tuition,
+        studentLivingCost: livingCost,
+      );
+      final financial = (p.netAfter15Years / 600000 * 100)
+          .clamp(0.0, 100.0)
+          .toDouble();
+      return CareerScore(
+        c,
+        fit,
+        financial,
+        0.45 * fit + 0.30 * financial + 0.25 * c.demand,
+      );
+    }).toList();
+    scores.sort((a, b) {
+      final comparison = b.total.compareTo(a.total);
+      return comparison != 0 ? comparison : a.course.id.compareTo(b.course.id);
+    });
+    return scores;
+  }
+}
+
+class PlannerStore extends ChangeNotifier {
+  PlannerStore({this.username = 'local', this._readValue, this._writeValue});
+  final String username;
+  final Future<String?> Function(String)? _readValue;
+  final Future<void> Function(String, String)? _writeValue;
+  Future<void> get saved => _pending;
+  double deductionRate = 15;
+  Map<String, String> scenario = {};
+  double takeHomeFor(String city) => estimatedTakeHome(city, deductionRate);
+  void setDeduction(double value) {
+    if (!value.isFinite || value < 0 || value > 60) {
+      throw ArgumentError('Invalid deductions');
+    }
+    deductionRate = value;
+    save();
+  }
+
+  void saveScenario(Map<String, String> value) {
+    scenario = Map.of(value);
+    save();
+  }
+
+  bool _disposed = false;
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
 
   @override
-  Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 6,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Smart Career Planner'),
-          bottom: const TabBar(
-            isScrollable: true,
-            tabAlignment: TabAlignment.start,
-            tabs: [
-              Tab(text: 'Suitability Quiz'),
-              Tab(text: 'Course Simulator'),
-              Tab(text: 'Career Roadmap'),
-              Tab(text: 'Goal Tracker'),
-              Tab(text: 'What-If Simulator'),
-              Tab(text: 'Career Score'),
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  String get storageKey =>
+      'siswa_kerja.module4.v2.${Uri.encodeComponent(username)}';
+  late final SharedPreferencesAsync _preferences = SharedPreferencesAsync();
+  Map<String, String> answers = {};
+  String courseId = courses.first.id;
+  String location = locationCosts.keys.first;
+  final Set<String> milestones = {};
+  final List<CareerGoal> goals = [];
+  String? storageError;
+  Future<void> _pending = Future.value();
+  bool _writesBlocked = false;
+  Course get selectedCourse => courses.firstWhere((c) => c.id == courseId);
+  bool get quizComplete =>
+      quizQuestions.every((q) => q.options.values.contains(answers[q.id]));
+  double get livingCost => locationCosts[location]!;
+  bool isDone(int i) => milestones.contains('$courseId:$i');
+  double get progress =>
+      List.generate(
+        roadmapFor(selectedCourse).length,
+        isDone,
+      ).where((done) => done).length /
+          roadmapFor(selectedCourse).length;
+  Future<void> load() async {
+    try {
+      final raw =
+      await (_readValue?.call(storageKey) ??
+          _preferences.getString(storageKey));
+      if (raw == null) return;
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      final savedAnswers = Map<String, String>.from(data['answers'] as Map? ?? {});
+      final savedGoals = (data['goals'] as List? ?? [])
+          .map((g) => CareerGoal.fromJson(Map<String, dynamic>.from(g as Map)))
+          .toList();
+      final savedMilestones = Set<String>.from(data['milestones'] as List? ?? []);
+      if (savedAnswers.entries.any(
+            (entry) => !quizQuestions.any(
+              (q) =>
+          q.id == entry.key && q.options.values.contains(entry.value),
+        ),
+      ) ||
+          !courses.any((c) => c.id == data['courseId']) ||
+          !locationCosts.containsKey(data['location']) ||
+          savedGoals.any(
+                (g) =>
+            !courses.any((c) => c.id == g.courseId) ||
+                g.targetDate.year < 2000 ||
+                g.targetDate.year >= 2200 ||
+                !g.salary.isFinite ||
+                g.salary < 0 ||
+                g.title.trim().isEmpty,
+          )) {
+        throw const FormatException('Invalid saved data.');
+      }
+      final rate = (data['deductionRate'] as num?)?.toDouble() ?? 15;
+      if (!rate.isFinite || rate < 0 || rate > 60) {
+        throw const FormatException('Invalid deductions');
+      }
+      final savedScenario = Map<String, String>.from(
+        data['scenario'] as Map? ?? {},
+      );
+      answers = savedAnswers;
+      deductionRate = rate;
+      scenario = savedScenario;
+      courseId = data['courseId'] as String;
+      location = data['location'] as String;
+      goals.addAll(savedGoals);
+      milestones.addAll(savedMilestones);
+    } catch (_) {
+      storageError =
+      'Saved progress could not be loaded. Retry saving replaces it with current progress.';
+      _writesBlocked = true;
+    }
+  }
+
+  void selectCourse(String id) {
+    courseId = id;
+    save();
+  }
+
+  void selectLocation(String value) {
+    location = value;
+    save();
+  }
+
+  void answer(String id, String value) {
+    answers[id] = value;
+    save();
+  }
+
+  void toggleMilestone(int i, bool done) {
+    final key = '$courseId:$i';
+    if (done) {
+      milestones.add(key);
+    } else {
+      milestones.remove(key);
+    }
+    save();
+  }
+
+  void putGoal(CareerGoal goal) {
+    final i = goals.indexWhere((g) => g.id == goal.id);
+    if (i < 0) {
+      goals.add(goal);
+    } else {
+      goals[i] = goal;
+    }
+    save();
+  }
+
+  void removeGoal(String id) {
+    goals.removeWhere((g) => g.id == id);
+    save();
+  }
+
+  void retrySave() {
+    _writesBlocked = false;
+    save();
+  }
+
+  void save() {
+    notifyListeners();
+    if (_writesBlocked) return;
+    final snapshot = jsonEncode({
+      'deductionRate': deductionRate,
+      'scenario': scenario,
+      'answers': answers,
+      'courseId': courseId,
+      'location': location,
+      'milestones': milestones.toList(),
+      'goals': goals.map((g) => g.toJson()).toList(),
+    });
+
+    _pending = _pending.then((_) async {
+      try {
+        await (_writeValue?.call(storageKey, snapshot) ??
+            _preferences.setString(storageKey, snapshot));
+        storageError = null;
+      } catch (_) {
+        storageError =
+        'Changes could not be saved on this device. Retry saving.';
+      }
+      notifyListeners();
+    });
+  }
+}
+
+String rm(num value) {
+  final digits = value
+      .abs()
+      .toStringAsFixed(0)
+      .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]},');
+  return '${value < 0 ? '-' : ''}RM $digits';
+}
+
+class Panel extends StatelessWidget {
+  const Panel({super.key, required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => Card(
+    margin: const EdgeInsets.only(bottom: 16),
+    child: Padding(padding: const EdgeInsets.all(20), child: child),
+  );
+}
+
+class Heading extends StatelessWidget {
+  const Heading(this.title, this.subtitle, {super.key});
+  final String title, subtitle;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 20),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Text(subtitle),
+      ],
+    ),
+  );
+}
+
+class Pick extends StatelessWidget {
+  const Pick({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+  final String label, value;
+  final Map<String, String> options;
+  final ValueChanged<String> onChanged;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 16),
+    child: InputDecorator(
+      decoration: InputDecoration(labelText: label),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          isExpanded: true,
+          value: value,
+          items: options.entries
+              .map(
+                (e) => DropdownMenuItem(
+              value: e.key,
+              child: Text(e.value, overflow: TextOverflow.ellipsis),
+            ),
+          )
+              .toList(),
+          onChanged: (v) {
+            if (v != null) onChanged(v);
+          },
+        ),
+      ),
+    ),
+  );
+}
+
+class Metric extends StatelessWidget {
+  const Metric(this.label, this.value, {super.key});
+  final String label, value;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+        Text(value, style: Theme.of(context).textTheme.titleLarge),
+      ],
+    ),
+  );
+}
+
+class AmountField extends StatelessWidget {
+  const AmountField({
+    super.key,
+    required this.controller,
+    required this.label,
+    this.maximum = 10000000,
+  });
+  final TextEditingController controller;
+  final String label;
+  final double maximum;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 14),
+    child: TextFormField(
+      controller: controller,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: InputDecoration(labelText: label),
+      validator: (value) {
+        final n = double.tryParse(value?.trim() ?? '');
+        if (n == null || !n.isFinite || n < 0 || n > maximum) {
+          return 'Enter 0 to ${maximum.toStringAsFixed(0)} without commas.';
+        }
+        return null;
+      },
+    ),
+  );
+}
+
+Map<String, String> get courseOptions => {
+  for (final c in courses) c.id: c.name,
+};
+Map<String, String> get cityOptions => {
+  for (final city in locationCosts.keys) city: city,
+};
+const demoNote =
+    'DOSM 2024 state wages are official benchmarks for employees, not graduate or course-specific salaries. Tuition, living costs, demand and growth are illustrative assumptions.';
+String dateLabel(DateTime d) => '${d.day}/${d.month}/${d.year}';
+String paybackLabel(Projection p) => p.paybackYears == null
+    ? 'Not recovered within 15 years'
+    : '${p.paybackYears!.toStringAsFixed(1)} working years';
+
+class QuizScreen extends StatelessWidget {
+  const QuizScreen({super.key, required this.store, required this.onResults});
+  final PlannerStore store;
+  final VoidCallback onResults;
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(20),
+    children: [
+      const Heading(
+        'Discover your career fit',
+        'Choose one answer in each category. You can change answers any time.',
+      ),
+      LinearProgressIndicator(
+        value:
+        quizQuestions
+            .where((q) => q.options.values.contains(store.answers[q.id]))
+            .length /
+            quizQuestions.length,
+      ),
+      const SizedBox(height: 20),
+      for (final q in quizQuestions)
+        Panel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(q.title, style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 12),
+              for (final entry in q.options.entries)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: ChoiceChip(
+                    label: Text(entry.key),
+                    selected: store.answers[q.id] == entry.value,
+                    onSelected: (_) => store.answer(q.id, entry.value),
+                  ),
+                ),
             ],
           ),
         ),
-        drawer: AppDrawer(userRole: userRole, username: username),
-        body: const TabBarView(
-          children: [
-            Center(child: Text('Career Suitability Quiz Content')),
-            Center(child: Text('Course Comparison Simulator Content')),
-            Center(child: Text('Personal Career Roadmap Content')),
-            Center(child: Text('Career Goal Tracker Content')),
-            Center(child: Text('What-If Career Simulator Content')),
-            Center(child: Text('Personalized Career Score Content')),
-          ],
+      FilledButton(
+        onPressed: store.quizComplete ? onResults : null,
+        child: const Text('See recommended careers and courses'),
+      ),
+      const SizedBox(height: 12),
+      const Text(
+        'This short quiz supports exploration. It is not a validated aptitude assessment.',
+      ),
+    ],
+  );
+}
+
+class ComparisonScreen extends StatefulWidget {
+  const ComparisonScreen({super.key, required this.store});
+  final PlannerStore store;
+  @override
+  State<ComparisonScreen> createState() => _ComparisonScreenState();
+}
+
+class _ComparisonScreenState extends State<ComparisonScreen> {
+  String left = courses[0].id, right = courses[1].id;
+  DataRow row(String label, String a, String b) => DataRow(
+    cells: [DataCell(Text(label)), DataCell(Text(a)), DataCell(Text(b))],
+  );
+  @override
+  Widget build(BuildContext context) {
+    final a = courses.firstWhere((c) => c.id == left),
+        b = courses.firstWhere((c) => c.id == right);
+    final living = widget.store.livingCost;
+    Projection project(Course c) => CareerEngine.project(
+      course: c,
+      salary: widget.store.takeHomeFor(widget.store.location),
+      livingCost: living,
+      tuition: c.tuition,
+      studentLivingCost: living,
+    );
+    final pa = project(a), pb = project(b);
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        const Heading(
+          'Compare your options',
+          'Compare two sample university-course pathways in the same location.',
         ),
+        Pick(
+          label: 'First course',
+          value: left,
+          options: courseOptions,
+          onChanged: (v) => setState(() {
+            if (v == right) right = left;
+            left = v;
+          }),
+        ),
+        Pick(
+          label: 'Second course',
+          value: right,
+          options: Map.fromEntries(
+            courseOptions.entries.where((e) => e.key != left),
+          ),
+          onChanged: (v) => setState(() => right = v),
+        ),
+        Pick(
+          label: 'Living-cost location',
+          value: widget.store.location,
+          options: cityOptions,
+          onChanged: widget.store.selectLocation,
+        ),
+        OfficialWageCard(
+          city: widget.store.location,
+          deductionRate: widget.store.deductionRate,
+          onDeductionChanged: widget.store.setDeduction,
+        ),
+        Panel(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              columns: [
+                const DataColumn(label: Text('Measure')),
+                DataColumn(label: Text(a.name)),
+                DataColumn(label: Text(b.name)),
+              ],
+              rows: [
+                row('Career', a.career, b.career),
+                row('Study duration', '${a.years} years', '${b.years} years'),
+                row('Total tuition', rm(a.tuition), rm(b.tuition)),
+                row(
+                  'Estimated state baseline take-home pay',
+                  rm(widget.store.takeHomeFor(widget.store.location)),
+                  rm(widget.store.takeHomeFor(widget.store.location)),
+                ),
+                row(
+                  'Job demand (demo index)',
+                  '${a.demand.round()}/100',
+                  '${b.demand.round()}/100',
+                ),
+                row('Monthly living costs', rm(living), rm(living)),
+                row(
+                  'Annual pay growth assumption',
+                  '${(a.growth * 100).toStringAsFixed(1)}%',
+                  '${(b.growth * 100).toStringAsFixed(1)}%',
+                ),
+                row(
+                  'Education investment',
+                  rm(pa.investment),
+                  rm(pb.investment),
+                ),
+                row(
+                  '15 working-year net balance',
+                  rm(pa.netAfter15Years),
+                  rm(pb.netAfter15Years),
+                ),
+                row(
+                  'Recovery after graduation',
+                  paybackLabel(pa),
+                  paybackLabel(pb),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const Text(
+          'Swipe the table horizontally on a small screen. Investment includes tuition and living costs '
+              'during study. Working expenses grow 2.5% annually. The horizon is 15 working years, '
+              'so total time from enrolment varies by course.',
+        ),
+        const SizedBox(height: 12),
+        const Text(demoNote),
+      ],
+    );
+  }
+}
+
+class RoadmapScreen extends StatelessWidget {
+  const RoadmapScreen({super.key, required this.store});
+  final PlannerStore store;
+  @override
+  Widget build(BuildContext context) {
+    final steps = roadmapFor(store.selectedCourse);
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        const Heading(
+          'One milestone at a time',
+          'Your pathway from high school to employment.',
+        ),
+        Pick(
+          label: 'My course pathway',
+          value: store.courseId,
+          options: courseOptions,
+          onChanged: store.selectCourse,
+        ),
+        Panel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Metric('Target career', store.selectedCourse.career),
+              LinearProgressIndicator(value: store.progress, minHeight: 10),
+              const SizedBox(height: 10),
+              Text('${(store.progress * 100).round()}% complete'),
+            ],
+          ),
+        ),
+        for (var i = 0; i < steps.length; i++)
+          Card(
+            child: CheckboxListTile(
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(steps[i]),
+              subtitle: Text('Milestone ${i + 1} of ${steps.length}'),
+              value: store.isDone(i),
+              onChanged: (v) => store.toggleMilestone(i, v ?? false),
+            ),
+          ),
+        const SizedBox(height: 16),
+        const Text(
+          'Progress is saved separately for each course. '
+              'Check admission, accreditation and registration requirements with the institution.',
+        ),
+      ],
+    );
+  }
+}
+
+class GoalsScreen extends StatelessWidget {
+  const GoalsScreen({super.key, required this.store});
+  final PlannerStore store;
+  Future<void> edit(BuildContext context, [CareerGoal? goal]) async {
+    final result = await showDialog<CareerGoal>(
+      context: context,
+      builder: (_) => GoalDialog(store: store, goal: goal),
+    );
+    if (result != null) store.putGoal(result);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final completed = store.goals.where((g) => g.done).length;
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        const Heading(
+          'Make your ambitions measurable',
+          'Save a career goal, target salary and deadline.',
+        ),
+        FilledButton.icon(
+          onPressed: () => edit(context),
+          icon: const Icon(Icons.add),
+          label: const Text('Add career goal'),
+        ),
+        const SizedBox(height: 16),
+        Panel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('$completed of ${store.goals.length} goals completed'),
+              const SizedBox(height: 12),
+              LinearProgressIndicator(
+                value: store.goals.isEmpty ? 0 : completed / store.goals.length,
+              ),
+            ],
+          ),
+        ),
+        if (store.goals.isEmpty)
+          const Panel(
+            child: Text('No goals yet. Try: Secure my first internship.'),
+          ),
+        for (final goal in store.goals)
+          Panel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(goal.title),
+                  value: goal.done,
+                  onChanged: (v) {
+                    goal.done = v ?? false;
+                    store.save();
+                  },
+                ),
+                Text(courses.firstWhere((c) => c.id == goal.courseId).career),
+                Metric('Target monthly take-home salary', rm(goal.salary)),
+                Text('Target date: ${dateLabel(goal.targetDate)}'),
+                if (!goal.done &&
+                    goal.targetDate.isBefore(
+                      DateUtils.dateOnly(DateTime.now()),
+                    ))
+                  const Text(
+                    'Past target date - review your plan',
+                    style: TextStyle(color: Colors.deepOrange),
+                  ),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => edit(context, goal),
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('Edit'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () async {
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('Delete this goal?'),
+                            content: Text(goal.title),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text('Keep'),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, true),
+                                child: const Text('Delete'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirmed == true) store.removeGoal(goal.id);
+                      },
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('Delete'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class GoalDialog extends StatefulWidget {
+  const GoalDialog({super.key, required this.store, this.goal});
+  final PlannerStore store;
+  final CareerGoal? goal;
+  @override
+  State<GoalDialog> createState() => _GoalDialogState();
+}
+
+class _GoalDialogState extends State<GoalDialog> {
+  final form = GlobalKey<FormState>();
+  late final TextEditingController title, salary;
+  late String courseId;
+  late DateTime date;
+  @override
+  void initState() {
+    super.initState();
+    title = TextEditingController(text: widget.goal?.title ?? '');
+    salary = TextEditingController(
+      text: (widget.goal?.salary ?? 3500).toStringAsFixed(0),
+    );
+    courseId = widget.goal?.courseId ?? widget.store.courseId;
+    date =
+        widget.goal?.targetDate ??
+            DateUtils.dateOnly(DateTime.now().add(const Duration(days: 365)));
+  }
+
+  @override
+  void dispose() {
+    title.dispose();
+    salary.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(widget.goal == null ? 'New career goal' : 'Edit career goal'),
+    content: SizedBox(
+      width: 440,
+      child: SingleChildScrollView(
+        child: Form(
+          key: form,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: title,
+                maxLength: 100,
+                decoration: const InputDecoration(labelText: 'Goal'),
+                validator: (v) =>
+                v == null || v.trim().isEmpty ? 'Enter your goal.' : null,
+              ),
+              const SizedBox(height: 12),
+              Pick(
+                label: 'Career pathway',
+                value: courseId,
+                options: courseOptions,
+                onChanged: (v) => setState(() => courseId = v),
+              ),
+              AmountField(
+                controller: salary,
+                label: 'Target monthly take-home pay (RM)',
+                maximum: 100000,
+              ),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.calendar_today_outlined),
+                label: Text('Target: ${dateLabel(date)}'),
+                onPressed: () async {
+                  final selected = await showDatePicker(
+                    context: context,
+                    initialDate: date,
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime(2200),
+                  );
+                  if (selected != null && mounted) {
+                    setState(() => date = selected);
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if (!form.currentState!.validate()) return;
+          Navigator.pop(
+            context,
+            CareerGoal(
+              id:
+              widget.goal?.id ??
+                  DateTime.now().microsecondsSinceEpoch.toString(),
+              courseId: courseId,
+              title: title.text.trim(),
+              salary: double.parse(salary.text.trim()),
+              targetDate: date,
+              done: widget.goal?.done ?? false,
+            ),
+          );
+        },
+        child: const Text('Save goal'),
+      ),
+    ],
+  );
+}
+
+class RankingScreen extends StatelessWidget {
+  const RankingScreen({super.key, required this.store, required this.onQuiz});
+  final PlannerStore store;
+  final VoidCallback onQuiz;
+  @override
+  Widget build(BuildContext context) {
+    if (!store.quizComplete) {
+      return ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          const Heading(
+            'Your personalized ranking',
+            'Complete the quiz to include your personal suitability.',
+          ),
+          FilledButton(
+            onPressed: onQuiz,
+            child: const Text('Take the suitability quiz'),
+          ),
+        ],
+      );
+    }
+    final ranked = CareerEngine.rank(
+      store.answers,
+      store.livingCost,
+      monthlySalary: store.takeHomeFor(store.location),
+    );
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        const Heading(
+          'Explore your strongest matches',
+          'State wage benchmarks, your interests and transparent simulation assumptions.',
+        ),
+        Pick(
+          label: 'Location for financial comparison',
+          value: store.location,
+          options: cityOptions,
+          onChanged: store.selectLocation,
+        ),
+        OfficialWageCard(
+          city: store.location,
+          deductionRate: store.deductionRate,
+          onDeductionChanged: store.setDeduction,
+        ),
+        const Panel(
+          child: Text(
+            'Score = 45% personal fit + 30% financial potential + 25% job demand. '
+                'Each matching quiz category adds 25 fit points. All courses share the selected state wage baseline after assumed deductions. Financial potential is the 15-year net balance '
+                'divided by RM 600,000, capped between 0 and 100. Demand is a sample index. '
+                'This ranking is a planning aid, not a prediction.',
+          ),
+        ),
+        for (var i = 0; i < ranked.length; i++)
+          Panel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '#${i + 1}  ${ranked[i].course.career}',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                Text(ranked[i].course.name),
+                Metric(
+                  'Overall career score',
+                  '${ranked[i].total.toStringAsFixed(1)} / 100',
+                ),
+                LinearProgressIndicator(
+                  value: ranked[i].total / 100,
+                  minHeight: 8,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Personal fit ${ranked[i].suitability.round()} | Financial ${ranked[i].financial.round()} | '
+                      'Demand ${ranked[i].course.demand.round()}',
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: () {
+                    store.selectCourse(ranked[i].course.id);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Path selected. Open Career Roadmap to track milestones.',
+                        ),
+                      ),
+                    );
+                  },
+                  child: Text(
+                    store.courseId == ranked[i].course.id
+                        ? 'Current pathway'
+                        : 'Use this pathway',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        const Text(demoNote),
+      ],
+    );
+  }
+}
+
+class WhatIfScreen extends StatefulWidget {
+  const WhatIfScreen({super.key, required this.store});
+  final PlannerStore store;
+  @override
+  State<WhatIfScreen> createState() => _WhatIfScreenState();
+}
+
+class _WhatIfScreenState extends State<WhatIfScreen> {
+  final form = GlobalKey<FormState>();
+  late String courseId, city;
+  final salary = TextEditingController(), living = TextEditingController();
+  final tuition = TextEditingController(), student = TextEditingController();
+  final foregone = TextEditingController(text: '0'),
+      growth = TextEditingController();
+  final inflation = TextEditingController(text: '2.5');
+  Projection? result, baseline;
+  String? resultLabel;
+  bool dirty = true;
+  Course get course => courses.firstWhere((c) => c.id == courseId);
+  @override
+  void initState() {
+    super.initState();
+    courseId = widget.store.courseId;
+    city = widget.store.location;
+    courseDefaults();
+    cityDefaults();
+    final saved = widget.store.scenario;
+    if (courses.any((c) => c.id == saved['courseId']) &&
+        locationCosts.containsKey(saved['city'])) {
+      courseId = saved['courseId']!;
+      city = saved['city']!;
+      final controllers = {
+        'salary': salary,
+        'living': living,
+        'tuition': tuition,
+        'student': student,
+        'foregone': foregone,
+        'growth': growth,
+        'inflation': inflation,
+      };
+      for (final entry in controllers.entries) {
+        if (saved[entry.key] != null) entry.value.text = saved[entry.key]!;
+      }
+    }
+  }
+
+  void courseDefaults() {
+    salary.text = widget.store.takeHomeFor(city).toStringAsFixed(0);
+    tuition.text = course.tuition.toStringAsFixed(0);
+    growth.text = (course.growth * 100).toStringAsFixed(1);
+  }
+
+  void cityDefaults() {
+    living.text = locationCosts[city]!.toStringAsFixed(0);
+    student.text = living.text;
+  }
+
+  @override
+  void dispose() {
+    for (final c in [
+      salary,
+      living,
+      tuition,
+      student,
+      foregone,
+      growth,
+      inflation,
+    ]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  double n(TextEditingController c) => double.parse(c.text.trim());
+  void calculate() {
+    if (!form.currentState!.validate()) return;
+    widget.store.saveScenario({
+      'courseId': courseId,
+      'city': city,
+      'salary': salary.text,
+      'living': living.text,
+      'tuition': tuition.text,
+      'student': student.text,
+      'foregone': foregone.text,
+      'growth': growth.text,
+      'inflation': inflation.text,
+    });
+    setState(() {
+      result = CareerEngine.project(
+        course: course,
+        salary: n(salary),
+        livingCost: n(living),
+        tuition: n(tuition),
+        studentLivingCost: n(student),
+        foregoneMonthlyPay: n(foregone),
+        salaryGrowth: n(growth) / 100,
+        costGrowth: n(inflation) / 100,
+      );
+      baseline = CareerEngine.project(
+        course: course,
+        salary: widget.store.takeHomeFor(city),
+        livingCost: locationCosts[city]!,
+        tuition: course.tuition,
+        studentLivingCost: locationCosts[city]!,
+      );
+      resultLabel = '${course.name} in $city';
+      dirty = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(20),
+    children: [
+      const Heading(
+        'What if your plans change?',
+        'Change assumptions, then calculate a 15-year working-life scenario.',
+      ),
+      OfficialWageCard(
+        city: city,
+        deductionRate: widget.store.deductionRate,
+        onDeductionChanged: (value) {
+          widget.store.setDeduction(value);
+          setState(() {
+            salary.text = widget.store.takeHomeFor(city).toStringAsFixed(0);
+            dirty = true;
+          });
+        },
+      ),
+      Form(
+        key: form,
+        onChanged: () {
+          if (!dirty) setState(() => dirty = true);
+        },
+        child: Panel(
+          child: Column(
+            children: [
+              Pick(
+                label: 'Course (resets pay, fees and pay growth)',
+                value: courseId,
+                options: courseOptions,
+                onChanged: (v) => setState(() {
+                  courseId = v;
+                  courseDefaults();
+                  dirty = true;
+                }),
+              ),
+              Pick(
+                label: 'Location (resets pay and living costs)',
+                value: city,
+                options: cityOptions,
+                onChanged: (v) => setState(() {
+                  city = v;
+                  cityDefaults();
+                  salary.text = widget.store
+                      .takeHomeFor(city)
+                      .toStringAsFixed(0);
+                  dirty = true;
+                }),
+              ),
+              AmountField(
+                controller: salary,
+                label: 'Starting monthly take-home pay (RM)',
+                maximum: 100000,
+              ),
+              AmountField(
+                controller: tuition,
+                label: 'Total course tuition (RM)',
+              ),
+              AmountField(
+                controller: student,
+                label: 'Monthly living cost while studying (RM)',
+                maximum: 100000,
+              ),
+              AmountField(
+                controller: living,
+                label: 'Monthly living cost while working (RM)',
+                maximum: 100000,
+              ),
+              AmountField(
+                controller: foregone,
+                label: 'Monthly income forgone while studying (RM)',
+                maximum: 100000,
+              ),
+              AmountField(
+                controller: growth,
+                label: 'Annual pay growth (%)',
+                maximum: 30,
+              ),
+              AmountField(
+                controller: inflation,
+                label: 'Annual working living-cost growth (%)',
+                maximum: 30,
+              ),
+              FilledButton.icon(
+                onPressed: calculate,
+                icon: const Icon(Icons.calculate_outlined),
+                label: const Text('Calculate scenario'),
+              ),
+            ],
+          ),
+        ),
+      ),
+      if (dirty && result != null)
+        const Panel(
+          child: Text(
+            'Inputs changed. Calculate again to update your results.',
+          ),
+        ),
+      if (result != null && !dirty) ...[
+        Panel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(resultLabel!, style: Theme.of(context).textTheme.titleLarge),
+              Metric(
+                'Education investment including opportunity cost',
+                rm(result!.investment),
+              ),
+              Metric(
+                'Starting monthly surplus / deficit',
+                rm(result!.monthlySurplus),
+              ),
+              Metric(
+                'Investment recovery after graduation',
+                paybackLabel(result!),
+              ),
+              Metric(
+                'Net balance after 15 working years',
+                rm(result!.netAfter15Years),
+              ),
+              Metric(
+                'Change versus state benchmark scenario',
+                rm(result!.netAfter15Years - baseline!.netAfter15Years),
+              ),
+              const Text(
+                'Baseline uses the official 2024 state median less your assumed deductions, sample tuition, living costs and pay growth, '
+                    '2.5% expense growth and no forgone income.',
+              ),
+            ],
+          ),
+        ),
+        Panel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Net balance over time',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              for (final year in [0, 1, 3, 5, 10, 15])
+                Metric(
+                  year == 0 ? 'At graduation' : 'After $year working years',
+                  rm(result!.balanceByYear[year]),
+                ),
+            ],
+          ),
+        ),
+      ],
+      const Panel(
+        child: Text(
+          'Method: investment = tuition + study months x (student living costs + forgone pay). '
+              'Each working year adds 12 x (monthly take-home pay - living costs), with annual growth from year two. '
+              'Recovery is the first crossing of zero, interpolated within the year; it may reverse if later costs exceed pay. '
+              'This is cash-flow recovery, not incremental degree ROI. No loans, interest, discounting, unemployment gaps '
+              'or investment returns are modelled. Enter pay after deductions. Study living costs stay constant; amounts are nominal RM.',
+        ),
+      ),
+      const Text(demoNote),
+    ],
+  );
+}
+
+class WageBenchmark {
+  const WageBenchmark(this.state, this.median, this.mean);
+  final String state;
+  final double median, mean;
+}
+
+const wageSourceUrl =
+    'https://storage.dosm.gov.my/labour/salaries_wages_2024.pdf';
+const wageBenchmarks = <String, WageBenchmark>{
+  'Kuala Lumpur': WageBenchmark('W.P. Kuala Lumpur', 3687, 4782),
+  'Penang': WageBenchmark('Pulau Pinang', 2934, 3787),
+  'Johor Bahru': WageBenchmark('Johor', 2582, 3414),
+  'Ipoh': WageBenchmark('Perak', 2050, 3172),
+  'Kuching': WageBenchmark('Sarawak', 2490, 3424),
+  'Kota Kinabalu': WageBenchmark('Sabah', 2236, 3389),
+};
+double estimatedTakeHome(String city, double deductions) {
+  if (!wageBenchmarks.containsKey(city) ||
+      !deductions.isFinite ||
+      deductions < 0 ||
+      deductions > 60) {
+    throw ArgumentError('Invalid location or deduction percentage');
+  }
+  return wageBenchmarks[city]!.median * (1 - deductions / 100);
+}
+
+class OfficialWageCard extends StatelessWidget {
+  const OfficialWageCard({
+    super.key,
+    required this.city,
+    required this.deductionRate,
+    this.onDeductionChanged,
+  });
+  final String city;
+  final double deductionRate;
+  final ValueChanged<double>? onDeductionChanged;
+  Future<void> _launchSource(BuildContext context) async {
+    try {
+      final opened = await launchUrl(Uri.parse(wageSourceUrl));
+      if (!opened && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Source could not be opened. See docs/DATA_SOURCES.md.',
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Source could not be opened. See docs/DATA_SOURCES.md.',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final b = wageBenchmarks[city]!;
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'DOSM 2024 / ${b.state}',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          Text('Median monthly wage: ${rm(b.median)} | Mean: ${rm(b.mean)}'),
+          const Text(
+            'State-level Malaysian citizen employee wages; not city-level or graduate starting pay.',
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Assumed total deductions: ${deductionRate.toStringAsFixed(0)}%',
+          ),
+          if (onDeductionChanged != null)
+            Slider(
+              value: deductionRate,
+              min: 0,
+              max: 60,
+              divisions: 60,
+              label: '${deductionRate.round()}%',
+              onChanged: onDeductionChanged,
+            ),
+          Text(
+            'Estimated take-home baseline: ${rm(estimatedTakeHome(city, deductionRate))} per month',
+          ),
+          const Text(
+            'Deductions are your scenario assumption, not a tax or payroll calculation. Course and location forecasts are not official statistics.',
+          ),
+          TextButton.icon(
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('Source: DOSM report, Chart 7, page 35'),
+            onPressed: () => _launchSource(context),
+          ),
+        ],
       ),
     );
   }
+}
+
+class CareerPlannerPage extends StatefulWidget {
+  const CareerPlannerPage({
+    super.key,
+    required this.userRole,
+    required this.username,
+    this.store,
+  });
+  final String userRole, username;
+  final PlannerStore? store;
+  @override
+  State<CareerPlannerPage> createState() => _CareerPlannerPageState();
+}
+
+class _CareerPlannerPageState extends State<CareerPlannerPage>
+    with SingleTickerProviderStateMixin {
+  late PlannerStore _store;
+  late Future<void> _loading;
+  late final TabController _tabs;
+  bool get _ownsStore => widget.store == null;
+  void _initialize() {
+    _store = widget.store ?? PlannerStore(username: widget.username);
+    _loading = _ownsStore ? _store.load() : Future.value();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs = TabController(length: 6, vsync: this);
+    _initialize();
+  }
+
+  @override
+  void didUpdateWidget(covariant CareerPlannerPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.username != widget.username ||
+        oldWidget.store != widget.store) {
+      if (oldWidget.store == null) _store.dispose();
+      _initialize();
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_ownsStore) _store.dispose();
+    _tabs.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const Text('Smart Career Planner'),
+      actions: [
+        IconButton(
+          tooltip: 'About this planner',
+          icon: const Icon(Icons.info_outline),
+          onPressed: () => showDialog<void>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Plan for SDG 9'),
+              content: const SingleChildScrollView(
+                child: Text(
+                  'Explore pathways into digital innovation, engineering and industry-supporting skills. '
+                      'Use official 2024 DOSM state wage benchmarks to compare affordability, then track study and internship milestones. '
+                      'This supports informed access to industry careers; it does not measure national SDG progress. '
+                      'Quiz, fees, living costs, demand and growth are exploratory assumptions. '
+                      'Your planner is saved under your signed-in username on this device.',
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+      bottom: TabBar(
+        controller: _tabs,
+        isScrollable: true,
+        tabAlignment: TabAlignment.start,
+        tabs: const [
+          Tab(text: 'Suitability Quiz'),
+          Tab(text: 'Course Simulator'),
+          Tab(text: 'Career Roadmap'),
+          Tab(text: 'Goal Tracker'),
+          Tab(text: 'What-If Simulator'),
+          Tab(text: 'Career Score'),
+        ],
+      ),
+    ),
+    drawer: AppDrawer(userRole: widget.userRole, username: widget.username),
+    body: FutureBuilder<void>(
+      future: _loading,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        return AnimatedBuilder(
+          animation: _store,
+          builder: (context, _) => Column(
+            children: [
+              if (_store.storageError != null)
+                MaterialBanner(
+                  content: Text(_store.storageError!),
+                  actions: [
+                    TextButton(
+                      onPressed: _store.retrySave,
+                      child: const Text('Retry saving'),
+                    ),
+                  ],
+                ),
+              Expanded(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 980),
+                    child: TabBarView(
+                      controller: _tabs,
+                      children: [
+                        QuizScreen(
+                          store: _store,
+                          onResults: () => _tabs.animateTo(5),
+                        ),
+                        ComparisonScreen(store: _store),
+                        RoadmapScreen(store: _store),
+                        GoalsScreen(store: _store),
+                        WhatIfScreen(store: _store),
+                        RankingScreen(
+                          store: _store,
+                          onQuiz: () => _tabs.animateTo(0),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    ),
+  );
 }

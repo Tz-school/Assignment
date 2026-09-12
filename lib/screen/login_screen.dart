@@ -47,10 +47,10 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  // Malaysian Phone Format Validation (+60 format)
+  // Validates digits typed after +60 (8 to 10 digits starting with 1-9)
   bool _validateMalaysiaPhone(String phone) {
     final cleanPhone = phone.replaceAll(RegExp(r'[\s-]'), '');
-    final phoneRegExp = RegExp(r'^\+60[1-9][0-9]{7,9}$');
+    final phoneRegExp = RegExp(r'^[1-9][0-9]{7,9}$');
     return phoneRegExp.hasMatch(cleanPhone);
   }
 
@@ -128,11 +128,11 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       if (_selectedRole == 'industry') {
-        final contactNumber = _contactController.text.trim();
+        final rawContact = _contactController.text.trim();
 
         if (_companyNameController.text.trim().isEmpty ||
             _emailController.text.trim().isEmpty ||
-            contactNumber.isEmpty ||
+            rawContact.isEmpty ||
             _locationController.text.trim().isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Please fill in all industry partner fields')),
@@ -140,11 +140,11 @@ class _LoginScreenState extends State<LoginScreen> {
           return;
         }
 
-        // Validate Malaysian Phone Number (+60 Format)
-        if (!_validateMalaysiaPhone(contactNumber)) {
+        // Validate contact number typed after +60
+        if (!_validateMalaysiaPhone(rawContact)) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Enter a valid Malaysian contact number starting with +60 (e.g. +60123456789)'),
+              content: Text('Enter a valid phone number (e.g. 123456789)'),
             ),
           );
           return;
@@ -158,10 +158,13 @@ class _LoginScreenState extends State<LoginScreen> {
         }
 
         try {
+          // Store fully formatted phone number (+60XXXXXXXXX)
+          final fullContactNumber = '+60$rawContact';
+
           final partner = IndustryPartner(
             companyName: _companyNameController.text.trim(),
             email: _emailController.text.trim(),
-            contactNumber: contactNumber,
+            contactNumber: fullContactNumber,
             location: _locationController.text.trim(),
             photoPath: _companyPhoto!.path,
           );
@@ -324,9 +327,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       controller: _contactController,
                       keyboardType: TextInputType.phone,
                       decoration: const InputDecoration(
-                        labelText: 'Contact Number (+60 format)',
-                        hintText: '+60123456789',
+                        labelText: 'Phone Number',
                         prefixIcon: Icon(Icons.phone),
+                        prefixText: '+60 ',
+                        prefixStyle: TextStyle(
+                          color: Colors.black87,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        hintText: '123456789',
                         border: OutlineInputBorder(),
                       ),
                     ),

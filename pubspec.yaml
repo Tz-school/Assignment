@@ -31,6 +31,8 @@ dependencies:
   flutter:
     sdk: flutter
   image_picker: ^1.0.7
+  geolocator: ^13.0.1
+  http: ^1.2.2
   shared_preferences: ^2.5.5
   url_launcher: ^6.3.2
 

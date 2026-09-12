@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 import '../model/booking_model.dart';
 import '../model/event_model.dart';
 import '../model/event_registration_model.dart';
+import '../model/industry_partner_model.dart';
 import '../model/resume_model.dart';
 
 class DatabaseService {
@@ -45,8 +46,22 @@ class DatabaseService {
             )
           ''');
         }
+        if (oldVersion < 3) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS industry_partners (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              userId INTEGER,
+              companyName TEXT,
+              email TEXT,
+              contactNumber TEXT,
+              location TEXT,
+              photoPath TEXT,
+              FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+            )
+          ''');
+        }
       },
-      version: 2,
+      version: 3,
     );
   }
 
@@ -70,18 +85,18 @@ class DatabaseService {
     ''');
 
     await db.execute('''
-        CREATE TABLE events(
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          title TEXT,
-          description TEXT,
-          speaker TEXT,
-          venue TEXT,
-          date TEXT,
-          time TEXT,
-          capacity INTEGER,
-          booked INTEGER DEFAULT 0
-        )
-      ''');
+      CREATE TABLE events(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        description TEXT,
+        speaker TEXT,
+        venue TEXT,
+        date TEXT,
+        time TEXT,
+        capacity INTEGER,
+        booked INTEGER DEFAULT 0
+      )
+    ''');
 
     await db.execute('''
       CREATE TABLE event_registrations (
@@ -113,10 +128,61 @@ class DatabaseService {
     ''');
     log('TABLE resumes CREATED');
 
+    await db.execute('''
+      CREATE TABLE industry_partners (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER,
+        companyName TEXT,
+        email TEXT,
+        contactNumber TEXT,
+        location TEXT,
+        photoPath TEXT,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+      )
+    ''');
+    log('TABLE industry_partners CREATED');
+
     await db.rawInsert('''
       INSERT INTO users (username, password, role) 
       VALUES ('admin', 'admin123', 'admin')
     ''');
+  }
+
+  // --- INDUSTRY PARTNER METHODS ---
+  Future<int> registerIndustryUser({
+    required String username,
+    required String password,
+    required IndustryPartner partner,
+  }) async {
+    final db = await database;
+    return await db.transaction((txn) async {
+      int userId = await txn.insert('users', {
+        'username': username,
+        'password': password,
+        'role': 'industry',
+      });
+
+      await txn.insert(
+        'industry_partners',
+        partner.toMap(assignedUserId: userId),
+      );
+
+      return userId;
+    });
+  }
+
+  Future<IndustryPartner?> getIndustryPartnerByUserId(int userId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'industry_partners',
+      where: 'userId = ?',
+      whereArgs: [userId],
+    );
+
+    if (maps.isNotEmpty) {
+      return IndustryPartner.fromMap(maps.first);
+    }
+    return null;
   }
 
   // --- RESUME METHODS ---

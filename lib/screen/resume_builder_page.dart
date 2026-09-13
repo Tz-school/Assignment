@@ -1,48 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'app_drawer.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geocoding/geocoding.dart';
 import '../model/resume_model.dart';
 import '../service/database_service.dart';
-import 'package:flutter/services.dart';
-
-class IndustryPage extends StatelessWidget {
-  final String userRole;
-  final String username;
-
-  const IndustryPage({
-    super.key,
-    required this.userRole,
-    required this.username,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Industry'),
-          bottom: const TabBar(
-            isScrollable: true,
-            tabAlignment: TabAlignment.start,
-            tabs: [
-              Tab(text: 'Resume Builder'),
-              Tab(text: 'Job Seeker'),
-            ],
-          ),
-        ),
-        body: const TabBarView(
-          children: [
-            ResumeHomeTab(),
-            Center(child: Text('Job Seeker Content')),
-          ],
-        ),
-        drawer: AppDrawer(userRole: userRole, username: username),
-      ),
-    );
-  }
-}
 
 // --- RESUME HOME TAB ---
 class ResumeHomeTab extends StatefulWidget {
@@ -296,6 +259,121 @@ class _ResumeHistoryPageState extends State<ResumeHistoryPage> {
   }
 }
 
+// --- GOOGLE MAP LOCATION PICKER ---
+class LocationPickerPage extends StatefulWidget {
+  const LocationPickerPage({super.key});
+
+  @override
+  State<LocationPickerPage> createState() => _LocationPickerPageState();
+}
+
+class _LocationPickerPageState extends State<LocationPickerPage> {
+  LatLng _selectedPosition = const LatLng(3.1390, 101.6869); // Default position: Kuala Lumpur
+  String _formattedAddress = '';
+  bool _isGeocoding = false;
+
+  Future<void> _getAddressFromLatLng(LatLng position) async {
+    setState(() => _isGeocoding = true);
+    try {
+      List<Placemark> placemarks = await placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      );
+
+      if (placemarks.isNotEmpty) {
+        Placemark place = placemarks[0];
+        List<String> addressParts = [
+          place.street ?? '',
+          place.subLocality ?? '',
+          place.locality ?? '',
+          place.postalCode ?? '',
+          place.administrativeArea ?? '',
+          place.country ?? '',
+        ].where((part) => part.trim().isNotEmpty).toList();
+
+        setState(() {
+          _formattedAddress = addressParts.join(', ');
+        });
+      }
+    } catch (e) {
+      debugPrint('Geocoding error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to fetch address for selected location.')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isGeocoding = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Select Location'),
+      ),
+      body: Stack(
+        children: [
+          GoogleMap(
+            initialCameraPosition: CameraPosition(
+              target: _selectedPosition,
+              zoom: 15,
+            ),
+            onTap: (LatLng latLng) {
+              setState(() => _selectedPosition = latLng);
+              _getAddressFromLatLng(latLng);
+            },
+            markers: {
+              Marker(
+                markerId: const MarkerId('selected_location'),
+                position: _selectedPosition,
+              ),
+            },
+          ),
+          Positioned(
+            bottom: 24,
+            left: 16,
+            right: 16,
+            child: Card(
+              elevation: 6,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_isGeocoding)
+                      const CircularProgressIndicator()
+                    else
+                      Text(
+                        _formattedAddress.isEmpty
+                            ? 'Tap anywhere on the map to pick a location.'
+                            : _formattedAddress,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                      ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      onPressed: _formattedAddress.isEmpty || _isGeocoding
+                          ? null
+                          : () => Navigator.pop(context, _formattedAddress),
+                      icon: const Icon(Icons.check),
+                      label: const Text('Confirm Location'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // --- RESUME BUILDER FORM ---
 class ResumeBuilderForm extends StatefulWidget {
   final ResumeData? initialData;
@@ -372,6 +450,21 @@ class _ResumeBuilderFormState extends State<ResumeBuilderForm> {
       } else {
         setState(() => _profileImage = File(pickedFile.path));
       }
+    }
+  }
+
+  Future<void> _openMapPicker() async {
+    final String? resultAddress = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const LocationPickerPage(),
+      ),
+    );
+
+    if (resultAddress != null && resultAddress.isNotEmpty) {
+      setState(() {
+        _addressController.text = resultAddress;
+      });
     }
   }
 
@@ -585,10 +678,29 @@ class _ResumeBuilderFormState extends State<ResumeBuilderForm> {
                 ],
               ),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _addressController,
-                decoration: const InputDecoration(labelText: 'Full Address', border: OutlineInputBorder()),
-                maxLines: 2,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _addressController,
+                      decoration: const InputDecoration(
+                        labelText: 'Full Address',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 2,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    onPressed: _openMapPicker,
+                    icon: const Icon(Icons.map),
+                    tooltip: 'Pick address from Map',
+                    style: IconButton.styleFrom(
+                      padding: const EdgeInsets.all(16),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
               TextFormField(

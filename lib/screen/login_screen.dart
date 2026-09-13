@@ -1,4 +1,10 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+import '../model/industry_partner_model.dart';
 import '../service/database_service.dart';
 import 'main_navigation_screen.dart';
 
@@ -14,29 +20,90 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
-  bool _isRegistering = false; // Toggles between Login and Register views
+  // Industry Specific Controllers
+  final _companyNameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _contactController = TextEditingController();
+  final _locationController = TextEditingController();
+
+  bool _isRegistering = false;
+  String _selectedRole = 'student'; // 'student' or 'industry'
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+  bool _isFetchingLocation = false;
+  File? _companyPhoto;
 
-  String? _validatePassword(String password) {
-    /*
-    if (password.length < 8) {
-      return 'Password must be at least 8 characters long.';
+  final ImagePicker _picker = ImagePicker();
+
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    _companyNameController.dispose();
+    _emailController.dispose();
+    _contactController.dispose();
+    _locationController.dispose();
+    super.dispose();
+  }
+
+  // Validates digits typed after +60 (8 to 10 digits starting with 1-9)
+  bool _validateMalaysiaPhone(String phone) {
+    final cleanPhone = phone.replaceAll(RegExp(r'[\s-]'), '');
+    final phoneRegExp = RegExp(r'^[1-9][0-9]{7,9}$');
+    return phoneRegExp.hasMatch(cleanPhone);
+  }
+
+  Future<void> _pickCompanyPhoto() async {
+    final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+    if (image != null) {
+      setState(() {
+        _companyPhoto = File(image.path);
+      });
     }
-    if (!password.contains(RegExp(r'[A-Z]'))) {
-      return 'Password must contain at least one uppercase letter.';
+  }
+
+  Future<void> _generateLocation() async {
+    setState(() => _isFetchingLocation = true);
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        throw 'Location permissions are permanently denied.';
+      }
+
+      Position position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      );
+
+      final url = Uri.parse(
+        'https://nominatim.openstreetmap.org/reverse?format=json&lat=${position.latitude}&lon=${position.longitude}',
+      );
+      final response = await http.get(url, headers: {'User-Agent': 'FlutterApp'});
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final address = data['display_name'] ?? '${position.latitude}, ${position.longitude}';
+        setState(() {
+          _locationController.text = address;
+        });
+      } else {
+        setState(() {
+          _locationController.text = '${position.latitude}, ${position.longitude}';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to get location: $e')),
+        );
+      }
+    } finally {
+      setState(() => _isFetchingLocation = false);
     }
-    if (!password.contains(RegExp(r'[a-z]'))) {
-      return 'Password must contain at least one lowercase letter.';
-    }
-    if (!password.contains(RegExp(r'[0-9]'))) {
-      return 'Password must contain at least one number.';
-    }
-    if (!password.contains(RegExp(r'[!@#\$%^&*(),.?":{}|<>]'))) {
-      return 'Password must contain at least one special character.';
-    }
-    */
-    return null;
   }
 
   void _submitForm() async {
@@ -51,50 +118,93 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     if (_isRegistering) {
-      // --- REGISTRATION LOGIC ---
       final confirmPassword = _confirmPasswordController.text.trim();
 
-      // 1. Validate Password Strength
-      final passwordError = _validatePassword(password);
-      if (passwordError != null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(passwordError)));
-        return; // Stop the registration process
-      }
-
-      // 2. Check if passwords match
       if (password != confirmPassword) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Passwords do not match')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Passwords do not match')),
+        );
         return;
       }
 
-      // 3. Register the user
-      try {
-        await DatabaseService().registerUser(username, password, 'student');
+      if (_selectedRole == 'industry') {
+        final rawContact = _contactController.text.trim();
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Registration successful! Logging in...'),
-          ),
-        );
+        if (_companyNameController.text.trim().isEmpty ||
+            _emailController.text.trim().isEmpty ||
+            rawContact.isEmpty ||
+            _locationController.text.trim().isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please fill in all industry partner fields')),
+          );
+          return;
+        }
 
-        _navigateToMain(username: username, role: 'student');
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Username already exists!')),
-        );
+        // Validate contact number typed after +60
+        if (!_validateMalaysiaPhone(rawContact)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Enter a valid phone number (e.g. 123456789)'),
+            ),
+          );
+          return;
+        }
+
+        if (_companyPhoto == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please select a company photo')),
+          );
+          return;
+        }
+
+        try {
+          // Store fully formatted phone number (+60XXXXXXXXX)
+          final fullContactNumber = '+60$rawContact';
+
+          final partner = IndustryPartner(
+            companyName: _companyNameController.text.trim(),
+            email: _emailController.text.trim(),
+            contactNumber: fullContactNumber,
+            location: _locationController.text.trim(),
+            photoPath: _companyPhoto!.path,
+          );
+
+          await DatabaseService().registerIndustryUser(
+            username: username,
+            password: password,
+            partner: partner,
+          );
+
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Industry Partner registration successful!')),
+          );
+          _navigateToMain(username: username, role: 'industry');
+        } catch (e) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Username already exists!')),
+          );
+        }
+      } else {
+        try {
+          await DatabaseService().registerUser(username, password, 'student');
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Registration successful! Logging in...')),
+          );
+          _navigateToMain(username: username, role: 'student');
+        } catch (e) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Username already exists!')),
+          );
+        }
       }
     } else {
-      // 1. HARDCODED ADMIN CHECK
       if (username == 'admin' && password == 'admin123') {
         _navigateToMain(username: 'System Admin', role: 'admin');
         return;
       }
 
-      // 2. CHECK DATABASE FOR OTHER USERS (Registered Students)
       final user = await DatabaseService().loginUser(username, password);
       if (user != null) {
         _navigateToMain(username: user['username'], role: user['role']);
@@ -110,8 +220,7 @@ class _LoginScreenState extends State<LoginScreen> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            MainNavigationScreen(userRole: role, username: username),
+        builder: (context) => MainNavigationScreen(userRole: role, username: username),
       ),
     );
   }
@@ -137,7 +246,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 16),
                   Text(
                     _isRegistering
-                        ? 'Create Student Account'
+                        ? (_selectedRole == 'industry'
+                        ? 'Create Industry Account'
+                        : 'Create Student Account')
                         : 'Career & Industry Portal',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
@@ -147,7 +258,109 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Username Field
+                  if (_isRegistering) ...[
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(
+                          value: 'student',
+                          label: Text('Student'),
+                          icon: Icon(Icons.person),
+                        ),
+                        ButtonSegment(
+                          value: 'industry',
+                          label: Text('Industry Partner'),
+                          icon: Icon(Icons.business),
+                        ),
+                      ],
+                      selected: {_selectedRole},
+                      onSelectionChanged: (Set<String> newSelection) {
+                        setState(() {
+                          _selectedRole = newSelection.first;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+
+                  if (_isRegistering && _selectedRole == 'industry') ...[
+                    Center(
+                      child: GestureDetector(
+                        onTap: _pickCompanyPhoto,
+                        child: CircleAvatar(
+                          radius: 45,
+                          backgroundColor: Colors.indigo.shade50,
+                          backgroundImage:
+                          _companyPhoto != null ? FileImage(_companyPhoto!) : null,
+                          child: _companyPhoto == null
+                              ? const Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.add_a_photo, color: Colors.indigo),
+                              Text('Photo', style: TextStyle(fontSize: 12)),
+                            ],
+                          )
+                              : null,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _companyNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Company / Industry Name',
+                        prefixIcon: Icon(Icons.domain),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'Company Email',
+                        prefixIcon: Icon(Icons.email),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _contactController,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone Number',
+                        prefixIcon: Icon(Icons.phone),
+                        prefixText: '+60 ',
+                        prefixStyle: TextStyle(
+                          color: Colors.black87,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        hintText: '123456789',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _locationController,
+                      decoration: InputDecoration(
+                        labelText: 'Location',
+                        prefixIcon: const Icon(Icons.location_on),
+                        suffixIcon: IconButton(
+                          icon: _isFetchingLocation
+                              ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                              : const Icon(Icons.my_location, color: Colors.indigo),
+                          onPressed: _generateLocation,
+                        ),
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
                   TextField(
                     controller: _usernameController,
                     decoration: const InputDecoration(
@@ -158,7 +371,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Password Field
                   TextField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
@@ -167,9 +379,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       prefixIcon: const Icon(Icons.lock),
                       suffixIcon: IconButton(
                         icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility_off
-                              : Icons.visibility,
+                          _obscurePassword ? Icons.visibility_off : Icons.visibility,
                         ),
                         onPressed: () {
                           setState(() {
@@ -182,7 +392,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Confirm Password Field (Only shown during registration)
                   if (_isRegistering) ...[
                     TextField(
                       controller: _confirmPasswordController,
@@ -208,7 +417,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 16),
                   ],
 
-                  // Submit Button
                   ElevatedButton(
                     onPressed: _submitForm,
                     style: ElevatedButton.styleFrom(
@@ -223,7 +431,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Mode Toggle Button (Login <-> Register)
                   TextButton(
                     onPressed: () {
                       setState(() {

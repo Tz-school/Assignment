@@ -307,6 +307,35 @@ class StudentBookingTab extends StatefulWidget {
 class _StudentBookingTabState extends State<StudentBookingTab> {
   int _refreshKey = 0;
 
+  /// Formats the assigned start time ("HH:MM", e.g. "09:00") and duration
+  /// (minutes) into a display range like "10:00 - 11:00". Falls back to the
+  /// raw assignedTime string if it can't be parsed, and returns null if no
+  /// time has been assigned yet.
+  ///
+  /// NOTE: assumes MockInterviewModel exposes a `durationMinutes` (int?)
+  /// field matching the `durationMinutes` column in mock_interviews. If that
+  /// field doesn't exist under this name, this will need a small tweak.
+  String? _formatAssignedTimeRange(String? assignedTime, int? durationMinutes) {
+    if (assignedTime == null || assignedTime.isEmpty) return null;
+
+    final parts = assignedTime.split(':');
+    final startHour = parts.isNotEmpty ? int.tryParse(parts[0]) : null;
+    final startMinute = parts.length > 1 ? int.tryParse(parts[1]) : 0;
+    if (startHour == null) return assignedTime; // Unrecognized format — show as-is.
+
+    final duration = durationMinutes ?? 60; // Fall back to a 1-hour block if unknown.
+    final startTotalMinutes = startHour * 60 + (startMinute ?? 0);
+    final endTotalMinutes = startTotalMinutes + duration;
+
+    String fmt(int totalMinutes) {
+      final h = (totalMinutes ~/ 60) % 24;
+      final m = totalMinutes % 60;
+      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+    }
+
+    return '${fmt(startTotalMinutes)} - ${fmt(endTotalMinutes)}';
+  }
+
   void _showNewRequestDialog(BuildContext context) {
     String selectedType = 'Mock Interview';
     DateTime? selectedDate;
@@ -661,7 +690,7 @@ class _StudentBookingTabState extends State<StudentBookingTab> {
                         children: [
                           const Icon(Icons.location_on, size: 16, color: Colors.grey),
                           const SizedBox(width: 8),
-                          Text('Pref. Location: ${req.preferredLocation ?? "N/A"}'),
+                          Text('Location: ${req.preferredLocation ?? "N/A"}'),
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -669,7 +698,18 @@ class _StudentBookingTabState extends State<StudentBookingTab> {
                         children: [
                           const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
                           const SizedBox(width: 8),
-                          Text('${req.date} ${req.assignedTime != null ? "at ${req.assignedTime}" : "(Time TBD)"}'),
+                          Text(req.date),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.access_time, size: 16, color: Colors.grey),
+                          const SizedBox(width: 8),
+                          Text(
+                            _formatAssignedTimeRange(req.assignedTime, req.durationMinutes) ??
+                                'Time TBD',
+                          ),
                         ],
                       ),
                       if (req.advisor != null && req.advisor!.isNotEmpty) ...[

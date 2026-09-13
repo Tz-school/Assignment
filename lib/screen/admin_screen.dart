@@ -929,19 +929,134 @@ class AdminAssignAdvisorView extends StatefulWidget {
 
 class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
 
+  // --- Time helpers -------------------------------------------------------
+
+  int _toMinutes(TimeOfDay t) => t.hour * 60 + t.minute;
+
+  /// Best-effort parser that turns a slot's display label (e.g. "9:00 AM" or
+  /// "14:00") back into a [TimeOfDay] so it can be compared numerically.
+  /// Returns null if the label can't be understood, in which case that slot
+  /// is simply skipped by the availability check rather than crashing it.
+  TimeOfDay? _parseTimeLabel(String label) {
+    try {
+      final cleaned = label.trim().toUpperCase();
+      final isPM = cleaned.contains('PM');
+      final isAM = cleaned.contains('AM');
+      final numeric = cleaned.replaceAll(RegExp(r'[^0-9:]'), '');
+      final parts = numeric.split(':');
+      if (parts.isEmpty || parts.first.isEmpty) return null;
+      int hour = int.parse(parts[0]);
+      int minute = parts.length > 1 && parts[1].isNotEmpty ? int.parse(parts[1]) : 0;
+      if (isPM && hour != 12) hour += 12;
+      if (isAM && hour == 12) hour = 0;
+      return TimeOfDay(hour: hour % 24, minute: minute % 60);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Formats a time as the exact "HH:00" label that getAdvisorTimetable
+  /// generates and matches against (see database_service.dart). The stored
+  /// `assignedTime` MUST use this format, or future availability checks for
+  /// this counselor will silently fail to recognize the slot as booked.
+  String _formatHourLabel(TimeOfDay t) => '${t.hour.toString().padLeft(2, '0')}:00';
+
+  /// Returns true if the requested [start, end) range overlaps with any slot
+  /// in [slots] that is already marked as booked for this counselor/date.
+  /// Each booked slot is treated as occupying a 60-minute block starting at
+  /// its label's time, matching the hourly grid getAdvisorTimetable generates.
+  bool _rangeConflictsWithBookedSlot({
+    required List<TimetableSlot> slots,
+    required TimeOfDay start,
+    required TimeOfDay end,
+  }) {
+    final startMin = _toMinutes(start);
+    final endMin = _toMinutes(end);
+
+    for (final slot in slots) {
+      if (!slot.isBooked) continue;
+      final slotStart = _parseTimeLabel(slot.timeLabel);
+      if (slotStart == null) continue;
+      final slotStartMin = _toMinutes(slotStart);
+      // getAdvisorTimetable generates one slot per whole hour (9:00, 10:00, ... 17:00),
+      // so each booked slot occupies a 60-minute block.
+      const slotLengthMin = 60;
+      final slotEndMin = slotStartMin + slotLengthMin;
+      final overlaps = startMin < slotEndMin && endMin > slotStartMin;
+      if (overlaps) return true;
+    }
+    return false;
+  }
+
   void _showAssignDialog(BuildContext context, MockInterviewModel request) async {
     final counselors = await widget.dbService.getCareerCounselors();
     if (!context.mounted) return;
 
-    showDialog(
+    // Captured BEFORE entering showDialog. The StatefulBuilder below declares
+    // its own `context` parameter that shadows this one for the rest of the
+    // dialog's closures. Using the shadowed (dialog) context AFTER
+    // Navigator.pop(dialogContext) has torn it down is what causes
+    // "'_dependents.isEmpty': is not true" — so the post-close SnackBar must
+    // use this captured `screenContext` instead.
+    final screenContext = context;
+
+    // Declared here (outside the StatefulBuilder's builder) so the values
+    // persist across setDialogState-triggered rebuilds instead of resetting
+    // to null every time the dialog redraws.
+    String? selectedCounselor;
+    TimeOfDay? selectedStartTime;
+    TimeOfDay? selectedEndTime;
+    int selectedDuration = 30;
+    String? availabilityError;
+    final venueController = TextEditingController();
+    // Created once per counselor selection (see onChanged below), NOT inline
+    // inside build(). Calling an async DB method directly as a FutureBuilder's
+    // `future:` re-creates a brand new Future on every rebuild, which can
+    // still be in flight when Navigator.pop() tears the dialog down — that
+    // race is what was causing the "'_dependents.isEmpty': is not true" crash.
+    Future<List<TimetableSlot>>? timetableFuture;
+
+    await showDialog(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            String? selectedCounselor;
-            String? selectedTime;
-            int selectedDuration = 30;
-            final venueController = TextEditingController();
+
+            void applyDurationToEndTime() {
+              if (selectedStartTime == null) return;
+              final endMinutes = _toMinutes(selectedStartTime!) + selectedDuration;
+              selectedEndTime = TimeOfDay(hour: (endMinutes ~/ 60) % 24, minute: endMinutes % 60);
+            }
+
+            Future<void> pickStartTime() async {
+              final picked = await showTimePicker(
+                context: context,
+                initialTime: selectedStartTime ?? const TimeOfDay(hour: 9, minute: 0),
+              );
+              if (picked != null) {
+                setDialogState(() {
+                  // The timetable only tracks whole-hour slots ("09:00", "10:00", ...),
+                  // so snap the picked start time down to the hour to stay compatible
+                  // with how availability is stored and checked.
+                  selectedStartTime = TimeOfDay(hour: picked.hour, minute: 0);
+                  availabilityError = null;
+                  applyDurationToEndTime();
+                });
+              }
+            }
+
+            Future<void> pickEndTime() async {
+              final picked = await showTimePicker(
+                context: context,
+                initialTime: selectedEndTime ?? const TimeOfDay(hour: 9, minute: 30),
+              );
+              if (picked != null) {
+                setDialogState(() {
+                  selectedEndTime = picked;
+                  availabilityError = null;
+                });
+              }
+            }
 
             return AlertDialog(
               title: const Text('Assign Counselor & Schedule', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -958,6 +1073,7 @@ class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
 
                       // 1. Advisor Selection
                       DropdownButtonFormField<String>(
+                        value: selectedCounselor,
                         decoration: const InputDecoration(labelText: 'Select Counselor', border: OutlineInputBorder()),
                         items: counselors.map((c) => DropdownMenuItem(
                           value: c['username'] as String,
@@ -966,7 +1082,14 @@ class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
                         onChanged: (val) {
                           setDialogState(() {
                             selectedCounselor = val;
-                            selectedTime = null; // Reset time when advisor changes
+                            // Reset schedule fields since availability depends on the counselor.
+                            selectedStartTime = null;
+                            selectedEndTime = null;
+                            availabilityError = null;
+                            // Fetch the timetable exactly once per counselor selection.
+                            timetableFuture = val == null
+                                ? null
+                                : widget.dbService.getAdvisorTimetable(val, request.date);
                           });
                         },
                       ),
@@ -974,12 +1097,13 @@ class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
 
                       // 2. Timetable Graph (Only shows if an advisor is selected)
                       if (selectedCounselor != null) ...[
-                        const Text('Advisor Timetable (Tap an available slot):', style: TextStyle(fontWeight: FontWeight.bold)),
+                        const Text('Advisor Timetable (tap an available slot to set the start time):',
+                            style: TextStyle(fontWeight: FontWeight.bold)),
                         const SizedBox(height: 8),
                         SizedBox(
                           height: 60,
                           child: FutureBuilder<List<TimetableSlot>>(
-                            future: widget.dbService.getAdvisorTimetable(selectedCounselor!, request.date),
+                            future: timetableFuture,
                             builder: (context, snapshot) {
                               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
@@ -989,11 +1113,20 @@ class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
                                 itemCount: slots.length,
                                 itemBuilder: (context, index) {
                                   final slot = slots[index];
-                                  final isSelected = selectedTime == slot.timeLabel;
+                                  final slotAsTime = _parseTimeLabel(slot.timeLabel);
+                                  final isSelected = slotAsTime != null &&
+                                      selectedStartTime != null &&
+                                      _toMinutes(slotAsTime) == _toMinutes(selectedStartTime!);
 
                                   return GestureDetector(
                                     onTap: slot.isBooked ? null : () {
-                                      setDialogState(() => selectedTime = slot.timeLabel);
+                                      setDialogState(() {
+                                        availabilityError = null;
+                                        if (slotAsTime != null) {
+                                          selectedStartTime = slotAsTime;
+                                          applyDurationToEndTime();
+                                        }
+                                      });
                                     },
                                     child: Container(
                                       margin: const EdgeInsets.only(right: 8),
@@ -1027,7 +1160,38 @@ class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
                         ),
                         const SizedBox(height: 16),
 
-                        // 3. Venue & Duration Assignments
+                        // 3. Explicit start / end time entry
+                        const Text('Time Slot:', style: TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: pickStartTime,
+                                icon: const Icon(Icons.access_time),
+                                label: Text(selectedStartTime == null ? 'Start Time' : selectedStartTime!.format(context)),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: pickEndTime,
+                                icon: const Icon(Icons.access_time_filled),
+                                label: Text(selectedEndTime == null ? 'End Time' : selectedEndTime!.format(context)),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Start time is recorded to the nearest hour to match the availability grid.',
+                            style: TextStyle(fontSize: 11, color: Colors.grey),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // 4. Venue & Duration Assignments
                         TextField(
                           controller: venueController,
                           decoration: const InputDecoration(
@@ -1035,18 +1199,50 @@ class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
                             border: OutlineInputBorder(),
                             prefixIcon: Icon(Icons.location_on),
                           ),
+                          onChanged: (_) => setDialogState(() => availabilityError = null),
                         ),
                         const SizedBox(height: 16),
                         DropdownButtonFormField<int>(
                           value: selectedDuration,
-                          decoration: const InputDecoration(labelText: 'Duration', border: OutlineInputBorder()),
+                          decoration: const InputDecoration(
+                            labelText: 'Duration (used to suggest an end time)',
+                            border: OutlineInputBorder(),
+                          ),
                           items: const [
                             DropdownMenuItem(value: 30, child: Text('30 Minutes')),
                             DropdownMenuItem(value: 60, child: Text('1 Hour')),
                             DropdownMenuItem(value: 90, child: Text('1.5 Hours')),
                           ],
-                          onChanged: (val) => setDialogState(() => selectedDuration = val!),
+                          onChanged: (val) => setDialogState(() {
+                            selectedDuration = val!;
+                            applyDurationToEndTime();
+                          }),
                         ),
+
+                        if (availabilityError != null) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade50,
+                              border: Border.all(color: Colors.red.shade200),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.error_outline, color: Colors.red.shade700, size: 18),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    availabilityError!,
+                                    style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ],
                   ),
@@ -1058,22 +1254,74 @@ class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
                   child: const Text('Cancel'),
                 ),
                 ElevatedButton(
-                  onPressed: (selectedCounselor == null || selectedTime == null || venueController.text.isEmpty)
+                  onPressed: (selectedCounselor == null ||
+                      selectedStartTime == null ||
+                      selectedEndTime == null ||
+                      venueController.text.trim().isEmpty)
                       ? null
                       : () async {
+                    // Dismiss the keyboard/focus first. If a text field's floating
+                    // label animation (AnimatedDefaultTextStyle) is still running when
+                    // Navigator.pop() below tears the dialog down, the framework can
+                    // throw "Tried to build dirty widget in the wrong build scope."
+                    FocusManager.instance.primaryFocus?.unfocus();
+
+                    // Guard 1: end time must be strictly after start time. Halt otherwise.
+                    if (_toMinutes(selectedEndTime!) <= _toMinutes(selectedStartTime!)) {
+                      setDialogState(() {
+                        availabilityError = 'End time must be after the start time.';
+                      });
+                      return;
+                    }
+
+                    // Guard 2: re-check the counselor's live timetable right before
+                    // committing (it may have changed since the dialog opened). If the
+                    // requested [start, end) range overlaps an already-booked slot for
+                    // this counselor, halt and surface an error instead of saving.
+                    final freshSlots = await widget.dbService.getAdvisorTimetable(
+                      selectedCounselor!,
+                      request.date,
+                    );
+
+                    final hasConflict = _rangeConflictsWithBookedSlot(
+                      slots: freshSlots,
+                      start: selectedStartTime!,
+                      end: selectedEndTime!,
+                    );
+
+                    if (hasConflict) {
+                      setDialogState(() {
+                        availabilityError =
+                        'This counselor is no longer available for the selected time slot. '
+                            'Please pick a different time.';
+                      });
+                      return; // Halt: do not proceed to save the assignment.
+                    }
+
                     if (request.id != null) {
+                      // Duration reflects whatever start/end the admin actually
+                      // settled on (which may differ from the Duration dropdown
+                      // if they manually adjusted the end time).
+                      final effectiveDuration =
+                          _toMinutes(selectedEndTime!) - _toMinutes(selectedStartTime!);
+
                       await widget.dbService.assignAdvisorWithDetails(
                         request.id!,
                         selectedCounselor!,
-                        selectedTime!,
+                        // Must match the "HH:00" format getAdvisorTimetable generates,
+                        // otherwise this booking won't be recognized on future checks.
+                        _formatHourLabel(selectedStartTime!),
                         venueController.text.trim(),
-                        selectedDuration,
+                        effectiveDuration,
                       );
 
                       if (mounted) {
                         Navigator.pop(dialogContext);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Advisor assigned and scheduled successfully!'), backgroundColor: Colors.green),
+                        ScaffoldMessenger.of(screenContext).showSnackBar(
+                          const SnackBar(
+                            content: Text('Advisor assigned and scheduled successfully!'),
+                            backgroundColor: Colors.green,
+                          ),
                         );
                         setState(() {}); // Refresh parent list
                       }
@@ -1088,6 +1336,8 @@ class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
         );
       },
     );
+
+    venueController.dispose();
   }
 
   @override

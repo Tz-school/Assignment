@@ -26,7 +26,8 @@ class _BookingPageState extends State<BookingPage> {
     final bool isAdmin = widget.userRole == 'admin';
 
     return DefaultTabController(
-      length: isAdmin ? 4 : 3,
+      // Changed length to 2 for students
+      length: isAdmin ? 4 : 2,
       child: Scaffold(
           appBar: AppBar(
             title: Text(
@@ -47,7 +48,6 @@ class _BookingPageState extends State<BookingPage> {
                   : const [
                 Tab(text: 'Workshops & Fairs'),
                 Tab(text: 'Mock Interviews & Advisory'),
-                Tab(text: 'Booking Status & History'),
               ],
             ),
           ),
@@ -102,21 +102,86 @@ class _BookingPageState extends State<BookingPage> {
               AllBookingsView(dbService: DatabaseService()),
             ]
                 : [
-              StudentWorkshopListView(
-                key: ValueKey(_refreshKey),
+              // Use a nested widget for the sub-tabs
+              StudentWorkshopsParentTab(
                 username: widget.username,
+                refreshKey: _refreshKey,
               ),
               StudentBookingTab(
                 bookingType: 'Mock Interview',
                 username: widget.username,
               ),
-              StudentBookingStatusView(
-                dbService: DatabaseService(),
-                username: widget.username,
-              ),
             ],
           ),
           drawer: AppDrawer(userRole: widget.userRole, username: widget.username)
+      ),
+    );
+  }
+}
+
+class StudentWorkshopsParentTab extends StatelessWidget {
+  final String username;
+  final int refreshKey;
+
+  const StudentWorkshopsParentTab({
+    super.key,
+    required this.username,
+    required this.refreshKey,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Container(
+              height: 48,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(12.0),
+              ),
+              child: TabBar(
+                dividerColor: Colors.transparent,
+                indicatorSize: TabBarIndicatorSize.tab,
+                indicator: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12.0),
+                  color: Colors.indigo,
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black12,
+                      blurRadius: 4,
+                      offset: Offset(0, 2),
+                    )
+                  ],
+                ),
+                labelColor: Colors.white,
+                labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                unselectedLabelColor: Colors.grey.shade700,
+                tabs: const [
+                  Tab(text: 'All Events'),
+                  Tab(text: 'My Bookings'),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                StudentWorkshopListView(
+                  key: ValueKey(refreshKey),
+                  username: username,
+                ),
+                StudentBookingStatusView(
+                  dbService: DatabaseService(),
+                  username: username,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -7,6 +7,7 @@ import '../model/event_registration_model.dart';
 import '../model/industry_partner_model.dart';
 import '../model/resume_model.dart';
 import '../model/comparison_model.dart';
+import '../model/hiring_poster_model.dart';
 
 class DatabaseService {
   static final DatabaseService _databaseService = DatabaseService._internal();
@@ -61,9 +62,32 @@ class DatabaseService {
             )
           ''');
         }
+        if (oldVersion < 4) {
+          await db.execute('DROP TABLE IF EXISTS hiring_posters');
+          await _createHiringPostersTable(db);
+        }
       },
-      version: 3,
+      version: 4,
     );
+  }
+
+  Future<void> _createHiringPostersTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS hiring_posters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER,
+        companyName TEXT,
+        email TEXT,
+        address TEXT,
+        contactNumber TEXT,
+        title TEXT,
+        description TEXT,
+        imagePath TEXT,
+        datePosted TEXT,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+      )
+    ''');
+    log('TABLE hiring_posters CREATED');
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -143,10 +167,47 @@ class DatabaseService {
     ''');
     log('TABLE industry_partners CREATED');
 
+    await _createHiringPostersTable(db);
+
     await db.rawInsert('''
       INSERT INTO users (username, password, role) 
       VALUES ('admin', 'admin123', 'admin')
     ''');
+  }
+
+  // --- HIRING POSTERS METHODS ---
+  Future<int> insertHiringPoster(HiringPoster poster) async {
+    final db = await database;
+    return await db.insert('hiring_posters', poster.toMap());
+  }
+
+  Future<List<HiringPoster>> getHiringPostersByUserId(int userId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'hiring_posters',
+      where: 'userId = ?',
+      whereArgs: [userId],
+      orderBy: 'id DESC',
+    );
+    return List.generate(maps.length, (i) => HiringPoster.fromMap(maps[i]));
+  }
+
+  Future<List<HiringPoster>> getAllHiringPosters() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'hiring_posters',
+      orderBy: 'id DESC',
+    );
+    return List.generate(maps.length, (i) => HiringPoster.fromMap(maps[i]));
+  }
+
+  Future<int> deleteHiringPoster(int posterId) async {
+    final db = await database;
+    return await db.delete(
+      'hiring_posters',
+      where: 'id = ?',
+      whereArgs: [posterId],
+    );
   }
 
   // --- INDUSTRY PARTNER METHODS ---
@@ -214,6 +275,16 @@ class DatabaseService {
       'resumes',
       where: 'id = ?',
       whereArgs: [id],
+    );
+  }
+
+  Future<int> updateHiringPoster(HiringPoster poster) async {
+    final db = await database;
+    return await db.update(
+      'hiring_posters',
+      poster.toMap(),
+      where: 'id = ?',
+      whereArgs: [poster.id],
     );
   }
 

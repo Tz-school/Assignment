@@ -81,8 +81,19 @@ class DatabaseService {
             )
           ''');
         }
+        // NEW: adds profile fields to the users table for existing installs
+        if (oldVersion < 4) {
+          await db.execute('ALTER TABLE users ADD COLUMN email TEXT');
+          await db.execute('ALTER TABLE users ADD COLUMN phone TEXT');
+          await db.execute('ALTER TABLE users ADD COLUMN state TEXT');
+          await db.execute('ALTER TABLE users ADD COLUMN photoPath TEXT');
+        }
+        // NEW: adds full name field for existing installs
+        if (oldVersion < 5) {
+          await db.execute('ALTER TABLE users ADD COLUMN name TEXT');
+        }
       },
-      version: 3,
+      version: 5,
     );
   }
 
@@ -101,7 +112,12 @@ class DatabaseService {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE,
         password TEXT,
-        role TEXT
+        role TEXT,
+        name TEXT,
+        email TEXT,
+        phone TEXT,
+        state TEXT,
+        photoPath TEXT
       )
     ''');
 
@@ -252,6 +268,67 @@ class DatabaseService {
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
     }
+  }
+
+  // --- USER PROFILE METHODS ---
+  Future<Map<String, dynamic>?> getUserProfile(String username) async {
+    final db = await database;
+    final results = await db.query(
+      'users',
+      where: 'username = ?',
+      whereArgs: [username],
+    );
+    return results.isNotEmpty ? results.first : null;
+  }
+
+  Future<int> updateUserProfile(
+      String username, {
+        String? name,
+        String? email,
+        String? phone,
+        String? state,
+        String? photoPath,
+      }) async {
+    final db = await database;
+    final updates = <String, dynamic>{};
+    if (name != null) updates['name'] = name;
+    if (email != null) updates['email'] = email;
+    if (phone != null) updates['phone'] = phone;
+    if (state != null) updates['state'] = state;
+    if (photoPath != null) updates['photoPath'] = photoPath;
+
+    if (updates.isEmpty) return 0;
+
+    return await db.update(
+      'users',
+      updates,
+      where: 'username = ?',
+      whereArgs: [username],
+    );
+  }
+
+  // Returns true if the password was changed, false if currentPassword didn't match.
+  Future<bool> changePassword(
+      String username,
+      String currentPassword,
+      String newPassword,
+      ) async {
+    final db = await database;
+    final match = await db.query(
+      'users',
+      where: 'username = ? AND password = ?',
+      whereArgs: [username, currentPassword],
+    );
+
+    if (match.isEmpty) return false;
+
+    await db.update(
+      'users',
+      {'password': newPassword},
+      where: 'username = ?',
+      whereArgs: [username],
+    );
+    return true;
   }
 
   // --- MOCK INTERVIEW & ADVISORY METHODS ---

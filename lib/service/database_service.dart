@@ -5,6 +5,7 @@ import '../model/booking_model.dart';
 import '../model/event_model.dart';
 import '../model/event_registration_model.dart';
 import '../model/resume_model.dart';
+import '../model/comparison_model.dart';
 
 class DatabaseService {
   static final DatabaseService _databaseService = DatabaseService._internal();
@@ -335,5 +336,65 @@ class DatabaseService {
       return EventModel.fromMap(maps.first);
     }
     return null;
+  }
+
+  Future<void> _ensureComparisonTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS saved_comparisons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        state TEXT,
+        sector TEXT,
+        nominalSalary REAL,
+        netDisposable REAL,
+        savingsRatio REAL,
+        status TEXT,
+        notes TEXT
+      )
+    ''');
+  }
+
+  Future<int> insertComparison(ComparisonModel item) async {
+    final db = await database;
+    await _ensureComparisonTable(db);
+    return await db.insert('saved_comparisons', item.toMap());
+  }
+
+  Future<List<ComparisonModel>> getComparisons({String searchQuery = ''}) async {
+    final db = await database;
+    await _ensureComparisonTable(db);
+    List<Map<String, dynamic>> maps;
+    if (searchQuery.trim().isEmpty) {
+      maps = await db.query('saved_comparisons', orderBy: 'id DESC');
+    } else {
+      maps = await db.query(
+        'saved_comparisons',
+        where: 'title LIKE ? OR state LIKE ? OR sector LIKE ?',
+        whereArgs: ['%$searchQuery%', '%$searchQuery%', '%$searchQuery%'],
+        orderBy: 'id DESC',
+      );
+    }
+    return List.generate(maps.length, (i) => ComparisonModel.fromMap(maps[i]));
+  }
+
+  Future<int> updateComparison(ComparisonModel item) async {
+    final db = await database;
+    await _ensureComparisonTable(db);
+    return await db.update(
+      'saved_comparisons',
+      item.toMap(),
+      where: 'id = ?',
+      whereArgs: [item.id],
+    );
+  }
+
+  Future<int> deleteComparison(int id) async {
+    final db = await database;
+    await _ensureComparisonTable(db);
+    return await db.delete(
+      'saved_comparisons',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 }

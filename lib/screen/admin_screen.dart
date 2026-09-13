@@ -3,6 +3,8 @@ import '../service/database_service.dart';
 import '../model/event_model.dart';
 import '../model/event_registration_model.dart';
 import '../model/booking_model.dart';
+import '../model/mock_interview_model.dart';
+import '../model/timetable_model.dart';
 
 class CreateWorkshopScreen extends StatefulWidget {
   const CreateWorkshopScreen({super.key});
@@ -555,12 +557,10 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
   String _searchQuery = '';
   String _sortOrder = 'Newest';
 
-  // State variables for data and selection
   List<EventRegistrationModel> _allRegistrations = [];
   bool _isLoading = true;
   Set<String> _selectedKeys = {};
 
-  // NEW: State variable to control Batch Mode visibility
   bool _isBatchMode = false;
 
   @override
@@ -594,21 +594,20 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
     }
 
     list.sort((a, b) {
-      final dateA = DateTime.tryParse(a.date) ?? DateTime.now();
-      final dateB = DateTime.tryParse(b.date) ?? DateTime.now();
       if (_sortOrder == 'Newest') {
-        return dateB.compareTo(dateA);
+        return b.registrationId.compareTo(a.registrationId);
       } else {
-        return dateA.compareTo(dateB);
+        return a.registrationId.compareTo(b.registrationId);
       }
     });
 
     return list;
   }
 
-  void _updateStatus(int userId, int eventId, String newStatus) async {
+  // Updated to use registrationId & eventId matching DatabaseService
+  void _updateStatus(int registrationId, int eventId, String newStatus) async {
     setState(() => _isLoading = true);
-    await widget.dbService.updateRegistrationStatus(userId, eventId, newStatus);
+    await widget.dbService.updateRegistrationStatus(registrationId, eventId, newStatus);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -617,20 +616,21 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
           backgroundColor: newStatus == 'accepted' ? Colors.green : Colors.red,
         ),
       );
-      _selectedKeys.remove("${userId}_${eventId}");
+      _selectedKeys.remove("${registrationId}_${eventId}");
       await _loadData();
     }
   }
 
+  // Updated batch status logic for registrationId & eventId
   void _batchUpdateStatus(String newStatus) async {
     if (_selectedKeys.isEmpty) return;
 
     setState(() => _isLoading = true);
     for (String key in _selectedKeys) {
       final parts = key.split('_');
-      final userId = int.parse(parts[0]);
+      final regId = int.parse(parts[0]);
       final eventId = int.parse(parts[1]);
-      await widget.dbService.updateRegistrationStatus(userId, eventId, newStatus);
+      await widget.dbService.updateRegistrationStatus(regId, eventId, newStatus);
     }
 
     if (mounted) {
@@ -658,6 +658,19 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
           padding: const EdgeInsets.all(16.0),
           child: Row(
             children: [
+              IconButton(
+                onPressed: () {
+                  setState(() {
+                    _isBatchMode = !_isBatchMode;
+                    _selectedKeys.clear(); // Clear selections when toggling
+                  });
+                },
+                icon: Icon(_isBatchMode ? Icons.cancel : Icons.checklist),
+                color: _isBatchMode ? Colors.red : Colors.indigo,
+                tooltip: _isBatchMode ? 'Cancel Batch Selection' : 'Enable Batch Selection',
+              ),
+              const SizedBox(width: 8),
+
               Expanded(
                 child: TextField(
                   decoration: InputDecoration(
@@ -680,7 +693,6 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
               ),
               const SizedBox(width: 8),
 
-              // Filter Dropdown
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
@@ -709,20 +721,6 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-
-              // Toggle Batch Mode Button
-              IconButton(
-                onPressed: () {
-                  setState(() {
-                    _isBatchMode = !_isBatchMode;
-                    _selectedKeys.clear(); // Clear selections when toggling
-                  });
-                },
-                icon: Icon(_isBatchMode ? Icons.cancel : Icons.checklist),
-                color: _isBatchMode ? Colors.red : Colors.indigo,
-                tooltip: _isBatchMode ? 'Cancel Batch Selection' : 'Enable Batch Selection',
-              ),
             ],
           ),
         ),
@@ -740,7 +738,7 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
                   onChanged: displayedList.isEmpty ? null : (bool? checked) {
                     setState(() {
                       if (checked == true) {
-                        _selectedKeys = displayedList.map((r) => "${r.userId}_${r.eventId}").toSet();
+                        _selectedKeys = displayedList.map((r) => "${r.registrationId}_${r.eventId}").toSet();
                       } else {
                         _selectedKeys.clear();
                       }
@@ -789,8 +787,10 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
             itemCount: displayedList.length,
             itemBuilder: (context, index) {
               final req = displayedList[index];
-              final String itemKey = "${req.userId}_${req.eventId}";
+              // Changed key from userId to registrationId
+              final String itemKey = "${req.registrationId}_${req.eventId}";
               final bool isSelected = _selectedKeys.contains(itemKey);
+
               return Card(
                 elevation: isSelected ? 4 : 2,
                 margin: const EdgeInsets.only(bottom: 12),
@@ -801,10 +801,8 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
                         width: 2
                     )
                 ),
-                // 1. Wrap the card's content in an InkWell
                 child: InkWell(
                   borderRadius: BorderRadius.circular(12),
-                  // 2. Only enable the tap if Batch Mode is ON
                   onTap: _isBatchMode
                       ? () {
                     setState(() {
@@ -815,7 +813,7 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
                       }
                     });
                   }
-                      : null, // Do nothing if normal mode
+                      : null,
                   child: Padding(
                     padding: const EdgeInsets.all(12.0),
                     child: Row(
@@ -877,7 +875,8 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
                                     children: [
                                       Expanded(
                                         child: OutlinedButton.icon(
-                                          onPressed: () => _updateStatus(req.userId!, req.eventId, 'rejected'),
+                                          // Replaced userId! with req.registrationId
+                                          onPressed: () => _updateStatus(req.registrationId, req.eventId, 'rejected'),
                                           icon: const Icon(Icons.close, color: Colors.red),
                                           label: const Text('Reject', style: TextStyle(color: Colors.red)),
                                           style: OutlinedButton.styleFrom(
@@ -889,7 +888,8 @@ class _AdminPendingRequestsViewState extends State<AdminPendingRequestsView> {
                                       const SizedBox(width: 12),
                                       Expanded(
                                         child: ElevatedButton.icon(
-                                          onPressed: () => _updateStatus(req.userId!, req.eventId, 'accepted'),
+                                          // Replaced userId! with req.registrationId
+                                          onPressed: () => _updateStatus(req.registrationId, req.eventId, 'accepted'),
                                           icon: const Icon(Icons.check),
                                           label: const Text('Accept'),
                                           style: ElevatedButton.styleFrom(
@@ -928,37 +928,291 @@ class AdminAssignAdvisorView extends StatefulWidget {
 }
 
 class _AdminAssignAdvisorViewState extends State<AdminAssignAdvisorView> {
+
+  void _showAssignDialog(BuildContext context, MockInterviewModel request) async {
+    final counselors = await widget.dbService.getCareerCounselors();
+    if (!context.mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            String? selectedCounselor;
+            String? selectedTime;
+            int selectedDuration = 30;
+            final venueController = TextEditingController();
+
+            return AlertDialog(
+              title: const Text('Assign Counselor & Schedule', style: TextStyle(fontWeight: FontWeight.bold)),
+              content: SingleChildScrollView(
+                child: SizedBox(
+                  width: double.maxFinite,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Student Preferred Location: ${request.preferredLocation ?? "Not provided"}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+                      const SizedBox(height: 16),
+
+                      // 1. Advisor Selection
+                      DropdownButtonFormField<String>(
+                        decoration: const InputDecoration(labelText: 'Select Counselor', border: OutlineInputBorder()),
+                        items: counselors.map((c) => DropdownMenuItem(
+                          value: c['username'] as String,
+                          child: Text(c['username'] as String),
+                        )).toList(),
+                        onChanged: (val) {
+                          setDialogState(() {
+                            selectedCounselor = val;
+                            selectedTime = null; // Reset time when advisor changes
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 16),
+
+                      // 2. Timetable Graph (Only shows if an advisor is selected)
+                      if (selectedCounselor != null) ...[
+                        const Text('Advisor Timetable (Tap an available slot):', style: TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          height: 60,
+                          child: FutureBuilder<List<TimetableSlot>>(
+                            future: widget.dbService.getAdvisorTimetable(selectedCounselor!, request.date),
+                            builder: (context, snapshot) {
+                              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+
+                              final slots = snapshot.data!;
+                              return ListView.builder(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: slots.length,
+                                itemBuilder: (context, index) {
+                                  final slot = slots[index];
+                                  final isSelected = selectedTime == slot.timeLabel;
+
+                                  return GestureDetector(
+                                    onTap: slot.isBooked ? null : () {
+                                      setDialogState(() => selectedTime = slot.timeLabel);
+                                    },
+                                    child: Container(
+                                      margin: const EdgeInsets.only(right: 8),
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                      decoration: BoxDecoration(
+                                        color: slot.isBooked
+                                            ? Colors.red.shade100
+                                            : (isSelected ? Colors.indigo : Colors.green.shade100),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: slot.isBooked ? Colors.red : (isSelected ? Colors.indigo : Colors.green),
+                                        ),
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          slot.timeLabel,
+                                          style: TextStyle(
+                                            color: slot.isBooked
+                                                ? Colors.red.shade900
+                                                : (isSelected ? Colors.white : Colors.green.shade900),
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // 3. Venue & Duration Assignments
+                        TextField(
+                          controller: venueController,
+                          decoration: const InputDecoration(
+                            labelText: 'Assigned Venue / Link',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.location_on),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        DropdownButtonFormField<int>(
+                          value: selectedDuration,
+                          decoration: const InputDecoration(labelText: 'Duration', border: OutlineInputBorder()),
+                          items: const [
+                            DropdownMenuItem(value: 30, child: Text('30 Minutes')),
+                            DropdownMenuItem(value: 60, child: Text('1 Hour')),
+                            DropdownMenuItem(value: 90, child: Text('1.5 Hours')),
+                          ],
+                          onChanged: (val) => setDialogState(() => selectedDuration = val!),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: (selectedCounselor == null || selectedTime == null || venueController.text.isEmpty)
+                      ? null
+                      : () async {
+                    if (request.id != null) {
+                      await widget.dbService.assignAdvisorWithDetails(
+                        request.id!,
+                        selectedCounselor!,
+                        selectedTime!,
+                        venueController.text.trim(),
+                        selectedDuration,
+                      );
+
+                      if (mounted) {
+                        Navigator.pop(dialogContext);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Advisor assigned and scheduled successfully!'), backgroundColor: Colors.green),
+                        );
+                        setState(() {}); // Refresh parent list
+                      }
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+                  child: const Text('Confirm Assignment'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<BookingModel>>(
-      future: widget.dbService.getBookings(),
+    return FutureBuilder<List<MockInterviewModel>>(
+      future: widget.dbService.getAllMockInterviews(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData)
+        if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
-        final approvedList = snapshot.data!
-            .where((b) => b.status == 'Approved')
+        }
+
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Center(child: Text('No session requests found.'));
+        }
+
+        // Only show requests that haven't been assigned/accepted yet
+        final pendingRequests = snapshot.data!
+            .where((r) => r.status.toLowerCase() == 'pending')
             .toList();
 
-        if (approvedList.isEmpty)
-          return const Center(
-            child: Text('No approved bookings ready for assignment.'),
+        if (pendingRequests.isEmpty) {
+          return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.check_circle_outline, size: 64, color: Colors.green.shade300),
+                  const SizedBox(height: 16),
+                  const Text('All requests have been assigned!',
+                      style: TextStyle(fontSize: 16, color: Colors.grey)),
+                ],
+              )
           );
+        }
 
         return ListView.builder(
-          itemCount: approvedList.length,
+          padding: const EdgeInsets.all(12),
+          itemCount: pendingRequests.length,
           itemBuilder: (context, index) {
-            final b = approvedList[index];
+            final req = pendingRequests[index];
+
             return Card(
-              child: ListTile(
-                title: Text('${b.studentName} (${b.bookingType})'),
-                subtitle: Text('Assigned: ${b.assignedAdvisor ?? "None"}'),
-                trailing: ElevatedButton(
-                  child: const Text('Assign Advisor'),
-                  onPressed: () async {
-                    b.assignedAdvisor = 'Dr. Smith (HR Manager)';
-                    await widget.dbService.editBooking(b);
-                    setState(() {});
-                  },
+              elevation: 2,
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${req.requestType}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                              color: Colors.orange.shade50,
+                              border: Border.all(color: Colors.orange.shade200),
+                              borderRadius: BorderRadius.circular(8)
+                          ),
+                          child: Text(
+                            req.status.toUpperCase(),
+                            style: TextStyle(color: Colors.orange.shade800, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        )
+                      ],
+                    ),
+                    const Divider(height: 24),
+                    Row(
+                      children: [
+                        const Icon(Icons.person, size: 16, color: Colors.indigo),
+                        const SizedBox(width: 8),
+                        Text('Student: ${req.username}'),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.location_on, size: 16, color: Colors.indigo),
+                        const SizedBox(width: 8),
+                        Text('Pref. Location: ${req.preferredLocation ?? "Not provided"}'),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.calendar_today, size: 16, color: Colors.indigo),
+                        const SizedBox(width: 8),
+                        Text('${req.date} ${req.assignedTime != null ? "at ${req.assignedTime}" : "(Time TBD)"}'),
+                      ],
+                    ),
+                    if (req.notes != null && req.notes!.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(8)
+                        ),
+                        child: Text(
+                            'Notes: ${req.notes}',
+                            style: TextStyle(color: Colors.grey.shade700, fontStyle: FontStyle.italic)
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.indigo,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () => _showAssignDialog(context, req),
+                        icon: const Icon(Icons.assignment_ind),
+                        label: const Text('Assign Counselor & Accept', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             );

@@ -1,8 +1,44 @@
+import 'dart:math';
+import '../main.dart';
 import 'package:flutter/material.dart';
+import 'package:location/location.dart' as loc;
+import 'package:permission_handler/permission_handler.dart' as handler;
 import '../service/database_service.dart';
 import '../model/event_model.dart';
 import '../model/event_registration_model.dart';
-import '../model/booking_model.dart';
+import '../model/mock_interview_model.dart';
+
+class CampusLocation {
+  final String name;
+  final double? latitude;
+  final double? longitude;
+
+  const CampusLocation(this.name, {this.latitude, this.longitude});
+
+  bool get hasCoordinates => latitude != null && longitude != null;
+}
+
+const List<CampusLocation> kCampusLocations = [
+  CampusLocation('L201, Main Library', latitude: 3.2173321637368133, longitude: 101.72759358871654),
+  CampusLocation('Student Cafeteria', latitude: 3.214019495382605, longitude: 101.72680233705995),
+  CampusLocation('Career Center Office', latitude: 3.2152768109484704, longitude: 101.7265622793334),
+  CampusLocation('Auditorium', latitude: 3.2164591414335, longitude: 101.72951136816741),
+  CampusLocation('N301, Block N', latitude: 3.2172842372411377, longitude: 101.73042805834564),
+  CampusLocation('Online (Video Call)'),
+];
+
+/// Haversine distance between two lat/lng points, in metres.
+double _distanceInMeters(double lat1, double lon1, double lat2, double lon2) {
+  const earthRadius = 6371000.0;
+  final dLat = _deg2rad(lat2 - lat1);
+  final dLon = _deg2rad(lon2 - lon1);
+  final a = sin(dLat / 2) * sin(dLat / 2) +
+      cos(_deg2rad(lat1)) * cos(_deg2rad(lat2)) * sin(dLon / 2) * sin(dLon / 2);
+  final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+  return earthRadius * c;
+}
+
+double _deg2rad(double deg) => deg * (pi / 180);
 
 class StudentWorkshopListView extends StatefulWidget {
   final String username;
@@ -181,7 +217,19 @@ class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
           return const Center(child: Text('No upcoming workshops right now.'));
         }
 
-        final events = snapshot.data!;
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+
+        // Filter out events that are before today
+        final events = snapshot.data!.where((event) {
+          final eventDate = DateTime.tryParse(event.date) ?? today;
+          return eventDate.isAfter(today.subtract(const Duration(days: 1)));
+        }).toList();
+
+        // Check again after filtering
+        if (events.isEmpty) {
+          return const Center(child: Text('No upcoming workshops right now.'));
+        }
 
         return ListView.builder(
           padding: const EdgeInsets.all(12),
@@ -242,7 +290,7 @@ class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
   }
 }
 
-class StudentBookingTab extends StatelessWidget {
+class StudentBookingTab extends StatefulWidget {
   final String bookingType;
   final String username;
 
@@ -253,40 +301,424 @@ class StudentBookingTab extends StatelessWidget {
   });
 
   @override
+  State<StudentBookingTab> createState() => _StudentBookingTabState();
+}
+
+class _StudentBookingTabState extends State<StudentBookingTab> {
+  int _refreshKey = 0;
+
+  void _showNewRequestDialog(BuildContext context) {
+    String selectedType = 'Mock Interview';
+    DateTime? selectedDate;
+
+    // Preferred location is now chosen from a dropdown of known campus
+    // locations, optionally auto-selected via "Select nearest location".
+    String? selectedLocation;
+    bool isDetectingLocation = false;
+    String? formError; // Inline validation message - always visible, never hidden behind the sheet
+    final notesController = TextEditingController();
+
+    const String kNearestLocationOption = '📍 Select nearest location';
+
+    // Uses the `location` + `permission_handler` packages (see Practical 13)
+    // to read the device's current GPS position, then picks whichever
+    // CampusLocation is closest by straight-line distance.
+    Future<void> selectNearestLocation(
+        void Function(void Function()) setModalState,
+        BuildContext sheetContext,
+        ) async {
+      setModalState(() {
+        isDetectingLocation = true;
+        formError = null;
+      });
+      try {
+        final locationService = loc.Location();
+
+        bool gpsEnabled = await locationService.serviceEnabled();
+        if (!gpsEnabled) {
+          gpsEnabled = await locationService.requestService();
+          if (!gpsEnabled) {
+            setModalState(() => formError = 'Please enable GPS/location services.');
+            return;
+          }
+        }
+
+        handler.PermissionStatus permissionStatus =
+        await handler.Permission.locationWhenInUse.status;
+        if (!permissionStatus.isGranted) {
+          permissionStatus =
+          await handler.Permission.locationWhenInUse.request();
+          if (!permissionStatus.isGranted) {
+            setModalState(() => formError =
+            'Location permission is required to detect the nearest location.');
+            return;
+          }
+        }
+
+        final currentLocation = await locationService.getLocation();
+        final userLat = currentLocation.latitude;
+        final userLng = currentLocation.longitude;
+
+        if (userLat == null || userLng == null) return;
+
+        CampusLocation? nearest;
+        double? nearestDistance;
+        for (final campusLocation in kCampusLocations) {
+          if (!campusLocation.hasCoordinates) continue; // e.g. 'Online'
+          final distance = _distanceInMeters(
+            userLat,
+            userLng,
+            campusLocation.latitude!,
+            campusLocation.longitude!,
+          );
+          if (nearestDistance == null || distance < nearestDistance) {
+            nearestDistance = distance;
+            nearest = campusLocation;
+          }
+        }
+
+        if (nearest != null) {
+          setModalState(() {
+            selectedLocation = nearest!.name;
+            formError =
+            'Selected "${nearest!.name}" (${(nearestDistance! / 1000).toStringAsFixed(1)} km away)';
+          });
+        }
+      } catch (e) {
+        setModalState(() => formError = 'Could not detect location: $e');
+      } finally {
+        setModalState(() => isDetectingLocation = false);
+      }
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+                left: 24, right: 24, top: 24,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('Request Session',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 20),
+                  DropdownButtonFormField<String>(
+                    value: selectedType,
+                    decoration: const InputDecoration(
+                      labelText: 'Session Type',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: ['Mock Interview', 'Career Advisory']
+                        .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                        .toList(),
+                    onChanged: (val) => setModalState(() => selectedType = val!),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Date Picker (Full Width Now)
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: DateTime.now().add(const Duration(days: 1)),
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 90)),
+                      );
+                      if (picked != null) setModalState(() => selectedDate = picked);
+                    },
+                    icon: const Icon(Icons.calendar_today),
+                    label: Text(selectedDate == null
+                        ? 'Pick Date'
+                        : '${selectedDate!.day}/${selectedDate!.month}/${selectedDate!.year}'),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Preferred Location Field - a dropdown of preset campus
+                  // locations, plus a "Select nearest location" entry that
+                  // triggers GPS detection instead of setting a value directly.
+                  DropdownButtonFormField<String>(
+                    value: selectedLocation,
+                    decoration: InputDecoration(
+                      labelText: 'Preferred Location *',
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.location_on),
+                      suffixIcon: isDetectingLocation
+                          ? const Padding(
+                        padding: EdgeInsets.all(14.0),
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                          : null,
+                    ),
+                    hint: const Text('Choose a location'),
+                    items: [
+                      const DropdownMenuItem(
+                        value: kNearestLocationOption,
+                        child: Text(
+                          kNearestLocationOption,
+                          style: TextStyle(
+                            color: Colors.indigo,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      ...kCampusLocations.map((campusLocation) => DropdownMenuItem(
+                        value: campusLocation.name,
+                        child: Text(campusLocation.name),
+                      )),
+                    ],
+                    onChanged: isDetectingLocation
+                        ? null
+                        : (val) {
+                      if (val == kNearestLocationOption) {
+                        // Don't select the sentinel itself - detect instead.
+                        selectNearestLocation(setModalState, context);
+                      } else {
+                        setModalState(() {
+                          selectedLocation = val;
+                          formError = null;
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 16),
+
+                  TextField(
+                    controller: notesController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Notes / Specific focus (Optional)',
+                      hintText: 'e.g. Focus on technical questions...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+
+                  // Inline feedback - always visible, sits right in the sheet's
+                  // own layout instead of a SnackBar that can get hidden behind it.
+                  if (formError != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      formError!,
+                      style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.indigo,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    onPressed: () async {
+                      if (selectedDate == null || selectedLocation == null) {
+                        setModalState(() =>
+                        formError = 'Please select a date and a preferred location');
+                        return;
+                      }
+
+                      final dateStr = "${selectedDate!.year}-${selectedDate!.month.toString().padLeft(2, '0')}-${selectedDate!.day.toString().padLeft(2, '0')}";
+
+                      // Updated Model Call
+                      final newRequest = MockInterviewModel(
+                        username: widget.username,
+                        requestType: selectedType,
+                        date: dateStr,
+                        preferredLocation: selectedLocation,
+                        notes: notesController.text.trim(),
+                      );
+
+                      await DatabaseService().insertMockInterviewRequest(newRequest);
+
+                      if (context.mounted) {
+                        Navigator.pop(dialogContext);
+                        rootScaffoldMessengerKey.currentState!.showSnackBar(
+                            const SnackBar(content: Text('Request submitted successfully'), backgroundColor: Colors.green));
+                        setState(() {
+                          _refreshKey++;
+                        });
+                      }
+                    },
+                    child: const Text('Submit Request', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(height: 24),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'accepted': return Colors.green;
+      case 'rejected': return Colors.red;
+      default: return Colors.orange;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            bookingType == 'Career Workshop'
-                ? Icons.work
-                : Icons.record_voice_over,
-            size: 64,
-            color: Colors.indigo,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Book a $bookingType',
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: () async {
-              final newBooking = BookingModel(
-                studentName: username,
-                bookingType: bookingType,
-                date: '2026-09-10',
-                status: 'Pending',
-              );
-              await DatabaseService().insertBooking(newBooking);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Requested booking for $bookingType!')),
+    // We use a Scaffold inside the tab to easily anchor the FloatingActionButton to the bottom right
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _showNewRequestDialog(context),
+        icon: const Icon(Icons.add),
+        label: const Text('New Request'),
+        backgroundColor: Colors.indigo,
+        foregroundColor: Colors.white,
+      ),
+      body: FutureBuilder<List<MockInterviewModel>>(
+        key: ValueKey(_refreshKey), // Put back your refresh key
+        future: DatabaseService().getStudentMockInterviews(widget.username),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.assignment_ind_outlined, size: 64, color: Colors.grey.shade400),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No requests found.\nTap "New Request" to book a session.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          final requests = snapshot.data!;
+
+          return ListView.builder(
+            padding: const EdgeInsets.only(left: 12, right: 12, top: 12, bottom: 80), // Padding bottom for FAB
+            itemCount: requests.length,
+            itemBuilder: (context, index) {
+              final req = requests[index];
+
+              // Determine status color for student view
+              Color statusColor;
+              if (req.status.toLowerCase() == 'accepted') {
+                statusColor = Colors.green;
+              } else if (req.status.toLowerCase() == 'rejected') {
+                statusColor = Colors.red;
+              } else {
+                statusColor = Colors.orange;
+              }
+
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            req.requestType,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: statusColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: statusColor.withOpacity(0.5)),
+                            ),
+                            child: Text(
+                              req.status.toUpperCase(),
+                              style: TextStyle(color: statusColor, fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 24),
+                      Row(
+                        children: [
+                          const Icon(Icons.location_on, size: 16, color: Colors.grey),
+                          const SizedBox(width: 8),
+                          Text('Pref. Location: ${req.preferredLocation ?? "N/A"}'),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                          const SizedBox(width: 8),
+                          Text('${req.date} ${req.assignedTime != null ? "at ${req.assignedTime}" : "(Time TBD)"}'),
+                        ],
+                      ),
+                      if (req.advisor != null && req.advisor!.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const Icon(Icons.person, size: 16, color: Colors.grey),
+                            const SizedBox(width: 8),
+                            Text('Advisor: ${req.advisor}'),
+                          ],
+                        ),
+                      ],
+                      if (req.venue != null && req.venue!.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const Icon(Icons.meeting_room, size: 16, color: Colors.green),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                  'Assigned Venue: ${req.venue}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      if (req.notes != null && req.notes!.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'Notes: ${req.notes}',
+                            style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                          ),
+                        ),
+                      ]
+                    ],
+                  ),
+                ),
               );
             },
-            child: const Text('Submit Request'),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -591,8 +1023,7 @@ class _StudentBookingStatusViewState extends State<StudentBookingStatusView> {
               if (!_isHistoryTab) {
                 myRegistrations = myRegistrations.where((r) {
                   final eventDate = DateTime.tryParse(r.date) ?? today;
-                  return (eventDate.isAfter(today.subtract(const Duration(days: 1)))) &&
-                      (r.status.toLowerCase() != 'rejected');
+                  return eventDate.isAfter(today.subtract(const Duration(days: 1)));
                 }).toList();
               }
 

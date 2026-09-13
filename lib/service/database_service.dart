@@ -5,6 +5,7 @@ import '../model/booking_model.dart';
 import '../model/event_model.dart';
 import '../model/event_registration_model.dart';
 import '../model/industry_partner_model.dart';
+import '../model/hiring_poster_model.dart';
 import '../model/resume_model.dart';
 import '../model/mock_interview_model.dart';
 import '../model/timetable_model.dart';
@@ -49,7 +50,6 @@ class DatabaseService {
             )
           ''');
         }
-        // Updated version 3 migration to match the new model fields
         if (oldVersion < 3) {
           await db.execute('''
             CREATE TABLE IF NOT EXISTS mock_interviews (
@@ -66,8 +66,6 @@ class DatabaseService {
               durationMinutes INTEGER
             )
           ''');
-        }
-        if (oldVersion < 3) {
           await db.execute('''
             CREATE TABLE IF NOT EXISTS industry_partners (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,19 +79,34 @@ class DatabaseService {
             )
           ''');
         }
-        // NEW: adds profile fields to the users table for existing installs
         if (oldVersion < 4) {
           await db.execute('ALTER TABLE users ADD COLUMN email TEXT');
           await db.execute('ALTER TABLE users ADD COLUMN phone TEXT');
           await db.execute('ALTER TABLE users ADD COLUMN state TEXT');
           await db.execute('ALTER TABLE users ADD COLUMN photoPath TEXT');
         }
-        // NEW: adds full name field for existing installs
         if (oldVersion < 5) {
           await db.execute('ALTER TABLE users ADD COLUMN name TEXT');
         }
+        if (oldVersion < 6) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS hiring_posters (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              userId INTEGER,
+              companyName TEXT NOT NULL,
+              email TEXT NOT NULL,
+              address TEXT NOT NULL,
+              contactNumber TEXT NOT NULL,
+              title TEXT NOT NULL,
+              description TEXT NOT NULL,
+              imagePath TEXT,
+              datePosted TEXT NOT NULL,
+              FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+            )
+          ''');
+        }
       },
-      version: 5,
+      version: 6,
     );
   }
 
@@ -179,7 +192,23 @@ class DatabaseService {
     ''');
     log('TABLE industry_partners CREATED');
 
-    // Updated initial creation for mock_interviews
+    await db.execute('''
+      CREATE TABLE hiring_posters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER,
+        companyName TEXT NOT NULL,
+        email TEXT NOT NULL,
+        address TEXT NOT NULL,
+        contactNumber TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        imagePath TEXT,
+        datePosted TEXT NOT NULL,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+      )
+    ''');
+    log('TABLE hiring_posters CREATED');
+
     await db.execute('''
       CREATE TABLE mock_interviews (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -203,6 +232,51 @@ class DatabaseService {
       INSERT INTO users (username, password, role) 
       VALUES ('admin', 'admin123', 'admin')
     ''');
+  }
+
+  // --- HIRING POSTER METHODS ---
+  Future<int> insertHiringPoster(HiringPoster poster) async {
+    final db = await database;
+    return await db.insert('hiring_posters', poster.toMap());
+  }
+
+  Future<List<HiringPoster>> getHiringPostersByUserId(int userId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'hiring_posters',
+      where: 'userId = ?',
+      whereArgs: [userId],
+      orderBy: 'id DESC',
+    );
+    return List.generate(maps.length, (i) => HiringPoster.fromMap(maps[i]));
+  }
+
+  Future<List<HiringPoster>> getAllHiringPosters() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'hiring_posters',
+      orderBy: 'id DESC',
+    );
+    return List.generate(maps.length, (i) => HiringPoster.fromMap(maps[i]));
+  }
+
+  Future<int> updateHiringPoster(HiringPoster poster) async {
+    final db = await database;
+    return await db.update(
+      'hiring_posters',
+      poster.toMap(),
+      where: 'id = ?',
+      whereArgs: [poster.id],
+    );
+  }
+
+  Future<int> deleteHiringPoster(int id) async {
+    final db = await database;
+    return await db.delete(
+      'hiring_posters',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   // --- INDUSTRY PARTNER METHODS ---
@@ -307,7 +381,6 @@ class DatabaseService {
     );
   }
 
-  // Returns true if the password was changed, false if currentPassword didn't match.
   Future<bool> changePassword(
       String username,
       String currentPassword,
@@ -343,7 +416,7 @@ class DatabaseService {
       'mock_interviews',
       where: 'username = ?',
       whereArgs: [username],
-      orderBy: 'id DESC', // Show newest requests first
+      orderBy: 'id DESC',
     );
     return List.generate(maps.length, (i) => MockInterviewModel.fromMap(maps[i]));
   }
@@ -635,19 +708,17 @@ class DatabaseService {
 
   Future<List<Map<String, dynamic>>> getCareerCounselors() async {
     final db = await database;
-    // Fetches any user registered specifically as a Career Counselor
     return await db.query('users', where: 'role = ?', whereArgs: ['Career Counselor']);
   }
 
   Future<bool> isCounselorAvailable(String counselorName, String date, String time) async {
     final db = await database;
-    // Checks if the counselor already has an accepted/pending session at this exact date and time
     final results = await db.query(
       'mock_interviews',
       where: 'advisor = ? AND date = ? AND time = ? AND status != ?',
       whereArgs: [counselorName, date, time, 'Rejected'],
     );
-    return results.isEmpty; // Returns true if no conflicts are found
+    return results.isEmpty;
   }
 
   Future<int> assignAdvisorToRequest(int requestId, String advisorName) async {
@@ -660,34 +731,29 @@ class DatabaseService {
     );
   }
 
-  // Fetches a specific advisor's schedule for a given date to build the timetable graph
   Future<List<TimetableSlot>> getAdvisorTimetable(String advisorName, String date) async {
     final db = await database;
 
-    // Get all accepted bookings for this advisor on this date
     final results = await db.query(
       'mock_interviews',
       where: 'advisor = ? AND date = ? AND status = ?',
       whereArgs: [advisorName, date, 'Accepted'],
     );
 
-    // Extract the booked times (assuming assignedTime is stored as "HH:MM")
     final bookedTimes = results.map((r) => r['assignedTime'] as String?).whereType<String>().toSet();
 
-    // Generate a standard 9 AM to 5 PM timetable block
     List<TimetableSlot> schedule = [];
     for (int i = 9; i <= 17; i++) {
       String timeLabel = '${i.toString().padLeft(2, '0')}:00';
       schedule.add(TimetableSlot(
         timeLabel: timeLabel,
-        isBooked: bookedTimes.contains(timeLabel), // Will be true if a booking exists
+        isBooked: bookedTimes.contains(timeLabel),
       ));
     }
 
     return schedule;
   }
 
-  // Updated assignment method including new admin parameters
   Future<int> assignAdvisorWithDetails(
       int requestId,
       String advisorName,

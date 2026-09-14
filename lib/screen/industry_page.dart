@@ -1,0 +1,695 @@
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'app_drawer.dart';
+import 'resume_builder_page.dart';
+import 'job_seeker.dart';
+import '../model/industry_partner_model.dart';
+import '../model/hiring_poster_model.dart';
+import '../model/resume_model.dart';
+import '../service/database_service.dart';
+
+class IndustryPage extends StatefulWidget {
+  final String userRole;
+  final String username;
+
+  const IndustryPage({
+    super.key,
+    required this.userRole,
+    required this.username,
+  });
+
+  @override
+  State<IndustryPage> createState() => _IndustryPageState();
+}
+
+class _IndustryPageState extends State<IndustryPage> {
+  IndustryPartner? _partnerProfile;
+  int? _userId;
+  bool _isLoading = true;
+
+  bool get _isIndustryPartner {
+    final role = widget.userRole.trim().toLowerCase();
+    return role == 'industry' || role == 'industry partner' || role == 'industry_partner';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isIndustryPartner) {
+      _loadPartnerData();
+    } else {
+      _isLoading = false;
+    }
+  }
+
+  Future<void> _loadPartnerData() async {
+    try {
+      final id = await DatabaseService().getUserId(widget.username);
+      if (id != null) {
+        final partner = await DatabaseService().getIndustryPartnerByUserId(id);
+        if (mounted) {
+          setState(() {
+            _userId = id;
+            _partnerProfile = partner;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading industry partner profile: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isIndustryPartner) {
+      if (_isLoading) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('Partner Portal')),
+          body: const Center(child: CircularProgressIndicator()),
+          drawer: AppDrawer(userRole: widget.userRole, username: widget.username),
+        );
+      }
+
+      final titleName = _partnerProfile?.companyName.isNotEmpty == true
+          ? _partnerProfile!.companyName
+          : widget.username;
+
+      return DefaultTabController(
+        length: 2,
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text('$titleName (Partner)'),
+            bottom: const TabBar(
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
+              tabs: [
+                Tab(icon: Icon(Icons.campaign), text: 'Hiring Posters'),
+                Tab(icon: Icon(Icons.folder_shared), text: 'Received Resumes'),
+              ],
+            ),
+          ),
+          body: TabBarView(
+            children: [
+              PartnerPostersTab(
+                userId: _userId,
+                partner: _partnerProfile,
+              ),
+              const ReceivedResumesTab(),
+            ],
+          ),
+          drawer: AppDrawer(userRole: widget.userRole, username: widget.username),
+        ),
+      );
+    }
+
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Industry'),
+          bottom: const TabBar(
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            tabs: [
+              Tab(text: 'Resume Builder'),
+              Tab(text: 'Job Seeker'),
+            ],
+          ),
+        ),
+        body: const TabBarView(
+          children: [
+            ResumeHomeTab(),
+            JobSeekerTab(),
+          ],
+        ),
+        drawer: AppDrawer(userRole: widget.userRole, username: widget.username),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// PARTNER TAB 1: HIRING POSTERS MANAGEMENT (VIEW & EDIT INCLUDED)
+// ============================================================================
+class PartnerPostersTab extends StatefulWidget {
+  final int? userId;
+  final IndustryPartner? partner;
+
+  const PartnerPostersTab({
+    super.key,
+    required this.userId,
+    required this.partner,
+  });
+
+  @override
+  State<PartnerPostersTab> createState() => _PartnerPostersTabState();
+}
+
+class _PartnerPostersTabState extends State<PartnerPostersTab> {
+  List<HiringPoster> _posters = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPosters();
+  }
+
+  Future<void> _loadPosters() async {
+    if (widget.userId == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
+    final list = await DatabaseService().getHiringPostersByUserId(widget.userId!);
+    if (mounted) {
+      setState(() {
+        _posters = list;
+        _isLoading = false;
+      });
+    }
+  }
+
+  // Opens form for either Creating (posterToEdit = null) or Editing (posterToEdit provided)
+  void _openPosterFormModal({HiringPoster? posterToEdit}) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => PosterFormSheet(
+        userId: widget.userId,
+        partner: widget.partner,
+        posterToEdit: posterToEdit,
+        onSuccess: _loadPosters,
+      ),
+    );
+  }
+
+  // Displays complete poster details inside a Dialog
+  void _viewPosterDetails(HiringPoster poster) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.campaign, color: Colors.blue),
+            const SizedBox(width: 8),
+            Expanded(child: Text(poster.title)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Divider(),
+              _detailRow(Icons.business, 'Company', poster.companyName),
+              _detailRow(Icons.email, 'Email', poster.email),
+              _detailRow(Icons.phone, 'Contact', poster.contactNumber),
+              _detailRow(Icons.location_on, 'Address', poster.address),
+              _detailRow(Icons.calendar_today, 'Posted Date', poster.datePosted),
+              const SizedBox(height: 12),
+              const Text(
+                'Job Description & Requirements:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(poster.description),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              _openPosterFormModal(posterToEdit: poster);
+            },
+            icon: const Icon(Icons.edit, size: 18),
+            label: const Text('Edit'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: Colors.blueAccent),
+          const SizedBox(width: 8),
+          Text('$label: ', style: const TextStyle(fontWeight: FontWeight.bold)),
+          Expanded(child: Text(value.isEmpty ? '-' : value)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deletePoster(int posterId) async {
+    await DatabaseService().deleteHiringPoster(posterId);
+    _loadPosters();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Poster deleted.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return Scaffold(
+      body: _posters.isEmpty
+          ? Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (widget.partner?.photoPath.isNotEmpty == true)
+                CircleAvatar(
+                  radius: 36,
+                  backgroundImage: FileImage(File(widget.partner!.photoPath)),
+                )
+              else
+                const Icon(Icons.business, size: 64, color: Colors.blue),
+              const SizedBox(height: 12),
+              Text(
+                widget.partner?.companyName ?? 'Industry Partner',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                widget.partner?.location ?? '',
+                style: const TextStyle(color: Colors.grey),
+              ),
+              const SizedBox(height: 24),
+              const Text('No hiring posters created yet.'),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () => _openPosterFormModal(),
+                icon: const Icon(Icons.add),
+                label: const Text('Create Hiring Poster'),
+              ),
+            ],
+          ),
+        ),
+      )
+          : ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _posters.length,
+        itemBuilder: (context, index) {
+          final poster = _posters[index];
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            child: ListTile(
+              onTap: () => _viewPosterDetails(poster),
+              leading: const CircleAvatar(
+                backgroundColor: Colors.blueAccent,
+                child: Icon(Icons.campaign, color: Colors.white),
+              ),
+              title: Text(
+                poster.title,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: Text(
+                '${poster.companyName} • ${poster.contactNumber}\n${poster.description}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              isThreeLine: true,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.edit, color: Colors.blue),
+                    onPressed: () => _openPosterFormModal(posterToEdit: poster),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: () {
+                      if (poster.id != null) _deletePoster(poster.id!);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+      floatingActionButton: _posters.isNotEmpty
+          ? FloatingActionButton.extended(
+        onPressed: () => _openPosterFormModal(),
+        icon: const Icon(Icons.add),
+        label: const Text('New Poster'),
+      )
+          : null,
+    );
+  }
+}
+
+// ============================================================================
+// FORM SHEET FOR CREATE & EDIT POSTER
+// ============================================================================
+class PosterFormSheet extends StatefulWidget {
+  final int? userId;
+  final IndustryPartner? partner;
+  final HiringPoster? posterToEdit;
+  final VoidCallback onSuccess;
+
+  const PosterFormSheet({
+    super.key,
+    required this.userId,
+    required this.partner,
+    this.posterToEdit,
+    required this.onSuccess,
+  });
+
+  @override
+  State<PosterFormSheet> createState() => _PosterFormSheetState();
+}
+
+class _PosterFormSheetState extends State<PosterFormSheet> {
+  final _formKey = GlobalKey<FormState>();
+
+  late TextEditingController _companyController;
+  late TextEditingController _emailController;
+  late TextEditingController _addressController;
+  late TextEditingController _contactController;
+  late TextEditingController _titleController;
+  late TextEditingController _descController;
+
+  bool _isSaving = false;
+
+  bool get _isEditing => widget.posterToEdit != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final p = widget.posterToEdit;
+
+    _companyController = TextEditingController(text: p?.companyName ?? widget.partner?.companyName ?? '');
+    _emailController = TextEditingController(text: p?.email ?? widget.partner?.email ?? '');
+    _addressController = TextEditingController(text: p?.address ?? widget.partner?.location ?? '');
+    _contactController = TextEditingController(text: p?.contactNumber ?? widget.partner?.contactNumber ?? '');
+
+    _titleController = TextEditingController(text: p?.title ?? '');
+    _descController = TextEditingController(text: p?.description ?? '');
+  }
+
+  @override
+  void dispose() {
+    _companyController.dispose();
+    _emailController.dispose();
+    _addressController.dispose();
+    _contactController.dispose();
+    _titleController.dispose();
+    _descController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() => _isSaving = true);
+      try {
+        final posterData = HiringPoster(
+          id: widget.posterToEdit?.id,
+          userId: widget.userId ?? widget.posterToEdit?.userId,
+          companyName: _companyController.text,
+          email: _emailController.text,
+          address: _addressController.text,
+          contactNumber: _contactController.text,
+          title: _titleController.text.trim(),
+          description: _descController.text.trim(),
+          imagePath: '',
+          datePosted: widget.posterToEdit?.datePosted ?? DateTime.now().toIso8601String().split('T').first,
+        );
+
+        if (_isEditing) {
+          await DatabaseService().updateHiringPoster(posterData);
+        } else {
+          await DatabaseService().insertHiringPoster(posterData);
+        }
+
+        widget.onSuccess();
+        if (!mounted) return;
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_isEditing ? 'Poster updated successfully!' : 'Hiring poster published successfully!'),
+          ),
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error saving poster: $e')),
+        );
+      } finally {
+        if (mounted) setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      child: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                _isEditing ? 'Edit Hiring Poster' : 'Create Hiring Poster',
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+
+              const Text(
+                'Company Information (Auto-filled)',
+                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+              ),
+              const SizedBox(height: 8),
+
+              TextFormField(
+                controller: _companyController,
+                readOnly: true,
+                decoration: const InputDecoration(
+                  labelText: 'Company Name',
+                  prefixIcon: Icon(Icons.business),
+                  filled: true,
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              TextFormField(
+                controller: _emailController,
+                readOnly: true,
+                decoration: const InputDecoration(
+                  labelText: 'Company Email / Gmail',
+                  prefixIcon: Icon(Icons.email),
+                  filled: true,
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              TextFormField(
+                controller: _addressController,
+                readOnly: true,
+                decoration: const InputDecoration(
+                  labelText: 'Company Address / Location',
+                  prefixIcon: Icon(Icons.location_on),
+                  filled: true,
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              TextFormField(
+                controller: _contactController,
+                readOnly: true,
+                decoration: const InputDecoration(
+                  labelText: 'Contact Number',
+                  prefixIcon: Icon(Icons.phone),
+                  filled: true,
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              const Text(
+                'Job Details',
+                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+              ),
+              const SizedBox(height: 8),
+
+              TextFormField(
+                controller: _titleController,
+                decoration: const InputDecoration(
+                  labelText: 'Job Title / Position',
+                  prefixIcon: Icon(Icons.work),
+                  border: OutlineInputBorder(),
+                ),
+                validator: (val) => val == null || val.trim().isEmpty ? 'Enter job title' : null,
+              ),
+              const SizedBox(height: 12),
+
+              TextFormField(
+                controller: _descController,
+                decoration: const InputDecoration(
+                  labelText: 'Description & Requirements',
+                  prefixIcon: Icon(Icons.description),
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 4,
+                validator: (val) => val == null || val.trim().isEmpty ? 'Enter description & requirements' : null,
+              ),
+              const SizedBox(height: 20),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _isSaving ? null : _submit,
+                      icon: _isSaving
+                          ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                          : Icon(_isEditing ? Icons.save : Icons.publish),
+                      label: Text(_isSaving
+                          ? 'Saving...'
+                          : (_isEditing ? 'Save Changes' : 'Publish Poster')),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// PARTNER TAB 2: RECEIVE USER RESUMES FROM DATABASE
+// ============================================================================
+class ReceivedResumesTab extends StatefulWidget {
+  const ReceivedResumesTab({super.key});
+
+  @override
+  State<ReceivedResumesTab> createState() => _ReceivedResumesTabState();
+}
+
+class _ReceivedResumesTabState extends State<ReceivedResumesTab> {
+  List<ResumeData> _resumes = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadResumes();
+  }
+
+  Future<void> _loadResumes() async {
+    final list = await DatabaseService().getAllResumes();
+    if (mounted) {
+      setState(() {
+        _resumes = list;
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_resumes.isEmpty) {
+      return const Center(
+        child: Text('No job applicant resumes received yet.'),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _resumes.length,
+      itemBuilder: (context, index) {
+        final resume = _resumes[index];
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundImage: FileImage(resume.profileImage),
+            ),
+            title: Text(resume.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text('${resume.gender} • Age ${resume.age}\nEmail: ${resume.email}'),
+            isThreeLine: true,
+            trailing: ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ResumeResultPage(data: resume),
+                  ),
+                );
+              },
+              child: const Text('View Resume'),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}

@@ -26,8 +26,8 @@ class _DataAnalysisPageState extends State<DataAnalysisPage> {
   final TextEditingController _tab1SalaryController = TextEditingController();
 
   final _tab3FormKey = GlobalKey<FormState>();
-  String? _tab3State;
   final TextEditingController _tab3SalaryController = TextEditingController();
+  double _targetSavingsRate = 30.0;
 
   bool _showAllStates = false;
 
@@ -180,20 +180,15 @@ class _DataAnalysisPageState extends State<DataAnalysisPage> {
     notesController.dispose();
   }
 
-  Future<void> _showSaveDialogTab3() async {
-    if (!_tab3FormKey.currentState!.validate()) {
-      return;
-    }
-
-    final double salary = double.parse(_tab3SalaryController.text.trim());
-    final titleController = TextEditingController(text: '${_tab3State!} Living Cost');
+  Future<void> _showSaveDialogTab3(String targetState, double targetSalary) async {
+    final titleController = TextEditingController(text: '$targetState Feasibility Match');
     final notesController = TextEditingController();
 
     final bool? confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: const Text('Save Living Cost Scenario'),
+          title: const Text('Save Feasibility Scenario'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -223,18 +218,18 @@ class _DataAnalysisPageState extends State<DataAnalysisPage> {
     );
 
     if (confirmed == true) {
-      final double livingCost = _stateData[_tab3State]?['livingCost'] ?? 1800.0;
-      final double netDisposable = salary - livingCost;
-      final double savingsRatio = salary > 0 ? (netDisposable / salary) * 100 : 0.0;
+      final double livingCost = _stateData[targetState]?['livingCost'] ?? 1800.0;
+      final double netDisposable = targetSalary - livingCost;
+      final double savingsRatio = targetSalary > 0 ? (netDisposable / targetSalary) * 100 : 0.0;
       final String finalTitle = titleController.text.trim().isEmpty
-          ? '${_tab3State!} Living Cost'
+          ? '$targetState Feasibility Match'
           : titleController.text.trim();
 
       final item = ComparisonModel(
         title: finalTitle,
-        state: _tab3State!,
-        sector: 'Living Cost',
-        nominalSalary: salary,
+        state: targetState,
+        sector: 'Feasibility Match',
+        nominalSalary: targetSalary,
         netDisposable: netDisposable,
         savingsRatio: savingsRatio,
         status: 'Active',
@@ -409,47 +404,34 @@ class _DataAnalysisPageState extends State<DataAnalysisPage> {
     final String st = item['state'] as String;
     final double net = item['net'] as double;
     final double r = item['ratio'] as double;
+    final double salary = item['salary'] as double;
+
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ListTile(
         dense: true,
         title: Text(st, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text('Median: RM ${(item['median'] as double).toStringAsFixed(0)} | Cost: RM ${(item['cost'] as double).toStringAsFixed(0)}'),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
+        subtitle: Text('Cost: RM ${(item['cost'] as double).toStringAsFixed(0)} | Net: RM ${net.toStringAsFixed(0)}'),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Net RM ${net.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
-            Text('${r.toStringAsFixed(1)}% savings', style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBreakdownItem(String label, double amount, double pct, Color color) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: const TextStyle(fontSize: 12)),
-            Text(
-              'RM ${amount.toStringAsFixed(0)}',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text('${r.toStringAsFixed(1)}% savings', style: TextStyle(fontWeight: FontWeight.bold, color: item['statusColor'] as Color)),
+                Text(item['statusText'] as String, style: TextStyle(fontSize: 10, color: Colors.grey.shade700)),
+              ],
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.bookmark_add_outlined, size: 20, color: Colors.indigo),
+              onPressed: () => _showSaveDialogTab3(st, salary),
+              tooltip: 'Save Match',
             ),
           ],
         ),
-        const SizedBox(height: 3),
-        LinearProgressIndicator(
-          value: pct,
-          color: color,
-          backgroundColor: Colors.white,
-          minHeight: 5,
-          borderRadius: BorderRadius.circular(3),
-        ),
-      ],
+      ),
     );
   }
 
@@ -466,7 +448,7 @@ class _DataAnalysisPageState extends State<DataAnalysisPage> {
             tabs: [
               Tab(text: 'Wage by State & Sector'),
               Tab(text: 'GDP by State'),
-              Tab(text: 'Salary vs Living Cost'),
+              Tab(text: 'State Feasibility Matcher'),
               Tab(text: 'Saved Comparisons'),
             ],
           ),
@@ -476,7 +458,7 @@ class _DataAnalysisPageState extends State<DataAnalysisPage> {
           children: [
             _buildWageByStateAndSectorTab(),
             _buildGDPByStateTab(),
-            _buildSalaryVsLivingCostTab(),
+            _buildStateFeasibilityMatcherTab(),
             _buildSavedComparisonsTab(),
           ],
         ),
@@ -706,41 +688,48 @@ class _DataAnalysisPageState extends State<DataAnalysisPage> {
     );
   }
 
-  Widget _buildSalaryVsLivingCostTab() {
-    final double livingCost = _tab3State != null
-        ? _stateData[_tab3State]!['livingCost']!
-        : 1800.0;
+  Widget _buildStateFeasibilityMatcherTab() {
     final double? salary = double.tryParse(_tab3SalaryController.text.trim());
-    final double? disposable = salary != null ? salary - livingCost : null;
-    final double? ratio = (salary != null && salary > 0) ? (disposable! / salary) * 100 : null;
 
-    String rating = 'Neutral';
-    Color ratingColor = Colors.black;
+    List<Map<String, dynamic>> meetsTarget = [];
+    List<Map<String, dynamic>> belowTarget = [];
+    List<Map<String, dynamic>> deficit = [];
 
-    if (disposable != null) {
-      if (disposable < 0) {
-        rating = 'Deficit';
-        ratingColor = Colors.red.shade900;
-      } else if (ratio! < 20.0) {
-        rating = 'Low Savings';
-        ratingColor = Colors.orange.shade900;
-      } else if (ratio < 40.0) {
-        rating = 'Moderate';
-        ratingColor = Colors.indigo;
-      } else {
-        rating = 'Good';
-        ratingColor = Colors.green.shade800;
-      }
+    if (salary != null) {
+      _stateData.forEach((st, data) {
+        final double cost = data['livingCost']!;
+        final double net = salary - cost;
+        final double ratio = salary > 0 ? (net / salary) * 100 : 0.0;
+
+        String statusText;
+        Color statusColor;
+
+        if (net < 0) {
+          statusText = 'Deficit';
+          statusColor = Colors.red.shade800;
+          deficit.add({'state': st, 'cost': cost, 'net': net, 'ratio': ratio, 'statusText': statusText, 'statusColor': statusColor, 'salary': salary});
+        } else if (ratio >= _targetSavingsRate) {
+          statusText = 'Meets Target';
+          statusColor = Colors.green.shade800;
+          meetsTarget.add({'state': st, 'cost': cost, 'net': net, 'ratio': ratio, 'statusText': statusText, 'statusColor': statusColor, 'salary': salary});
+        } else {
+          statusText = 'Below Target';
+          statusColor = Colors.orange.shade800;
+          belowTarget.add({'state': st, 'cost': cost, 'net': net, 'ratio': ratio, 'statusText': statusText, 'statusColor': statusColor, 'salary': salary});
+        }
+      });
     }
 
-    final rankingList = _stateData.keys.map((st) {
-      final double sMedian = _stateData[st]!['median']!;
-      final double sCost = _stateData[st]!['livingCost']!;
-      final double sNet = sMedian - sCost;
-      final double sRatio = (sNet / sMedian) * 100;
-      return {'state': st, 'median': sMedian, 'cost': sCost, 'net': sNet, 'ratio': sRatio};
-    }).toList()
-      ..sort((a, b) => (b['ratio'] as double).compareTo(a['ratio'] as double));
+    Map<String, dynamic>? bestMatch;
+    if (meetsTarget.isNotEmpty) {
+      bestMatch = meetsTarget.reduce((curr, next) =>
+      (curr['net'] as double) > (next['net'] as double) ? curr : next
+      );
+    } else if (belowTarget.isNotEmpty) {
+      bestMatch = belowTarget.reduce((curr, next) =>
+      (curr['net'] as double) > (next['net'] as double) ? curr : next
+      );
+    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -757,29 +746,13 @@ class _DataAnalysisPageState extends State<DataAnalysisPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Living Cost Input', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      initialValue: _tab3State,
-                      decoration: const InputDecoration(
-                        labelText: 'Select State *',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: _stateData.keys.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                      onChanged: (val) => setState(() => _tab3State = val),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please select a state';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
+                    const Text('State Feasibility Matcher', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 12),
                     TextFormField(
                       controller: _tab3SalaryController,
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
-                        labelText: 'Monthly Salary (RM) *',
+                        labelText: 'Expected Monthly Salary (RM) *',
                         border: OutlineInputBorder(),
                       ),
                       validator: (value) {
@@ -793,100 +766,113 @@ class _DataAnalysisPageState extends State<DataAnalysisPage> {
                       },
                       onChanged: (_) => setState(() {}),
                     ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              color: Colors.indigo.shade50,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _tab3State != null
-                          ? '$_tab3State Living Cost: RM ${livingCost.toStringAsFixed(0)}'
-                          : 'Average Living Cost: RM 1,800',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<double>(
+                      value: _targetSavingsRate,
+                      decoration: const InputDecoration(
+                        labelText: 'Target Savings Rate',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 10.0, child: Text('10% Savings Target')),
+                        DropdownMenuItem(value: 20.0, child: Text('20% Savings Target')),
+                        DropdownMenuItem(value: 30.0, child: Text('30% Savings Target (Recommended)')),
+                        DropdownMenuItem(value: 40.0, child: Text('40% High Savings Target')),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) setState(() => _targetSavingsRate = val);
+                      },
                     ),
-                    const SizedBox(height: 8),
-                    if (salary != null && disposable != null) ...[
-                      Text(
-                        'Net Balance: RM ${disposable.toStringAsFixed(0)}',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
-                          color: disposable >= 0 ? Colors.green.shade800 : Colors.red.shade800,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Savings Rate: ${ratio!.toStringAsFixed(1)}%',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Status: $rating',
-                        style: TextStyle(color: ratingColor, fontWeight: FontWeight.bold),
-                      ),
-                      const Divider(height: 20),
-                      const Text('Spending Breakdown:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                      const SizedBox(height: 8),
-                      _buildBreakdownItem('Rent (38%)', livingCost * 0.38, 0.38, Colors.indigo),
-                      const SizedBox(height: 6),
-                      _buildBreakdownItem('Food (32%)', livingCost * 0.32, 0.32, Colors.teal),
-                      const SizedBox(height: 6),
-                      _buildBreakdownItem('Transport (18%)', livingCost * 0.18, 0.18, Colors.orange),
-                      const SizedBox(height: 6),
-                      _buildBreakdownItem('Utilities & Others (12%)', livingCost * 0.12, 0.12, Colors.blueGrey),
-                    ] else ...[
-                      const Text('Enter salary to calculate balance.', style: TextStyle(fontSize: 13, color: Colors.blueGrey)),
-                    ],
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: _showSaveDialogTab3,
-              icon: const Icon(Icons.bookmark_border),
-              label: const Text('Save Scenario'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Ranking by State', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                TextButton(
-                  onPressed: () => setState(() => _showAllStates = !_showAllStates),
-                  child: Text(_showAllStates ? 'Show Top/Bottom 3' : 'Show All 16'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text('Compare salary against living cost across states.', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-            const SizedBox(height: 10),
-            if (_showAllStates) ...[
-              ...rankingList.map((item) => _buildStateCard(item)),
-            ] else ...[
-              ...rankingList.take(3).map((item) => _buildStateCard(item)),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Center(
-                  child: Text(
-                    '... 10 states hidden ...',
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontStyle: FontStyle.italic),
+            if (salary != null) ...[
+              Card(
+                color: Colors.indigo.shade50,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Feasibility Summary (${_targetSavingsRate.toStringAsFixed(0)}% Target)',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      const SizedBox(height: 8),
+                      Text('• ${meetsTarget.length} states meet or exceed your savings target.'),
+                      Text('• ${belowTarget.length} states are below your savings target.'),
+                      if (deficit.isNotEmpty)
+                        Text('• ${deficit.length} states result in a monthly budget deficit.', style: TextStyle(color: Colors.red.shade800, fontWeight: FontWeight.bold)),
+                    ],
                   ),
                 ),
               ),
-              ...rankingList.skip(13).map((item) => _buildStateCard(item)),
+              const SizedBox(height: 16),
+              if (bestMatch != null) ...[
+                Card(
+                  color: Colors.green.shade50,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: Colors.green.shade300, width: 1),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Recommended Best Match',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.green),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${bestMatch['state']}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Estimated Savings Rate: ${(bestMatch['ratio'] as double).toStringAsFixed(1)}% '
+                              '(Net RM ${(bestMatch['net'] as double).toStringAsFixed(0)})',
+                          style: TextStyle(fontSize: 13, color: Colors.grey.shade800),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Provides the highest estimated financial retention among evaluated options.',
+                          style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.blueGrey),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+              if (meetsTarget.isNotEmpty) ...[
+                const Text('States Meeting Your Target', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.green)),
+                const SizedBox(height: 4),
+                ...meetsTarget.map((item) => _buildStateCard(item)),
+                const SizedBox(height: 12),
+              ],
+              if (belowTarget.isNotEmpty) ...[
+                const Text('Below Target', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.orange)),
+                const SizedBox(height: 4),
+                ...belowTarget.map((item) => _buildStateCard(item)),
+                const SizedBox(height: 12),
+              ],
+              if (deficit.isNotEmpty) ...[
+                const Text('Budget Deficit', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.red)),
+                const SizedBox(height: 4),
+                ...deficit.map((item) => _buildStateCard(item)),
+              ],
+            ] else ...[
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(32.0),
+                  child: Text('Enter your expected salary above to evaluate state feasibility.', style: TextStyle(color: Colors.blueGrey)),
+                ),
+              ),
             ],
           ],
         ),

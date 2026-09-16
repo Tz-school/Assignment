@@ -5,6 +5,7 @@ import '../model/event_registration_model.dart';
 import '../model/booking_model.dart';
 import '../model/mock_interview_model.dart';
 import '../model/timetable_model.dart';
+import 'dart:io';
 
 class CreateWorkshopScreen extends StatefulWidget {
   const CreateWorkshopScreen({super.key});
@@ -330,6 +331,32 @@ class AdminEventDetailScreen extends StatefulWidget {
 }
 
 class _AdminEventDetailScreenState extends State<AdminEventDetailScreen> {
+  late final Future<List<Map<String, dynamic>>> _participantsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _participantsFuture = _loadParticipantsWithProfiles();
+  }
+
+  // Fetches accepted usernames, then looks up each one's stored profile
+  // (name + photoPath) so the list can show the real name and photo
+  // instead of just the raw username.
+  Future<List<Map<String, dynamic>>> _loadParticipantsWithProfiles() async {
+    final usernames = await widget.dbService.getAcceptedParticipants(widget.event.id!);
+
+    final profiles = await Future.wait(usernames.map((username) async {
+      final profile = await widget.dbService.getUserProfile(username);
+      return {
+        'username': username,
+        'name': profile?['name'] as String?,
+        'photoPath': profile?['photoPath'] as String?,
+      };
+    }));
+
+    return profiles;
+  }
+
   void _confirmDelete() {
     showDialog(
       context: context,
@@ -454,8 +481,8 @@ class _AdminEventDetailScreenState extends State<AdminEventDetailScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            FutureBuilder<List<String>>(
-              future: widget.dbService.getAcceptedParticipants(widget.event.id!),
+            FutureBuilder<List<Map<String, dynamic>>>(
+              future: _participantsFuture,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Padding(
@@ -489,14 +516,32 @@ class _AdminEventDetailScreenState extends State<AdminEventDetailScreen> {
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: participants.length,
                   itemBuilder: (context, index) {
-                    final username = participants[index];
+                    final participant = participants[index];
+                    final username = participant['username'] as String;
+                    final name = participant['name'] as String?;
+                    final photoPath = participant['photoPath'] as String?;
+
+                    // Prefer the stored full name; fall back to username if
+                    // the participant never set one.
+                    final displayName = (name != null && name.trim().isNotEmpty)
+                        ? name
+                        : username;
+
+                    // Only treat it as a real photo if the file actually
+                    // exists on disk (it may have been cleared or the app
+                    // reinstalled since the path was saved).
+                    final hasPhoto = photoPath != null && File(photoPath).existsSync();
+
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 4),
                       child: ListTile(
                         leading: CircleAvatar(
                           backgroundColor: Colors.indigo.shade100,
-                          child: Text(
-                            username.isNotEmpty ? username[0].toUpperCase() : 'U',
+                          backgroundImage: hasPhoto ? FileImage(File(photoPath)) : null,
+                          child: hasPhoto
+                              ? null
+                              : Text(
+                            displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
                             style: const TextStyle(
                               color: Colors.indigo,
                               fontWeight: FontWeight.bold,
@@ -504,7 +549,7 @@ class _AdminEventDetailScreenState extends State<AdminEventDetailScreen> {
                           ),
                         ),
                         title: Text(
-                          username,
+                          displayName,
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         trailing: Chip(

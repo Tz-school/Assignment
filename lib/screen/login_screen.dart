@@ -47,7 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  // Validates digits typed after +60 (8 to 10 digits starting with 1-9)
+
   bool _validateMalaysiaPhone(String phone) {
     final cleanPhone = phone.replaceAll(RegExp(r'[\s-]'), '');
     final phoneRegExp = RegExp(r'^[1-9][0-9]{7,9}$');

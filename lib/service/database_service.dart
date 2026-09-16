@@ -872,4 +872,9 @@ class DatabaseService {
     final db = await database;
     return await db.query('feedback', orderBy: 'id DESC');
   }
+
+  Future<int> deleteFeedback(int id) async {
+    final db = await database;
+    return await db.delete('feedback', where: 'id = ?', whereArgs: [id]);
+  }
 }

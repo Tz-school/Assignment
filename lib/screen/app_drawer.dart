@@ -1,8 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'login_screen.dart';
-import 'profile_screen.dart'; // Import the profile & feedback screens
+import 'profile_screen.dart';
 import '../service/database_service.dart';
+import 'feedback_submission.dart';
+import 'feedback_view.dart';
 
 class AppDrawer extends StatefulWidget {
   final String userRole;
@@ -104,13 +106,15 @@ class _AppDrawerState extends State<AppDrawer> {
             ),
             ListTile(
               leading: const Icon(Icons.feedback_outlined, color: Colors.indigo),
-              title: const Text('Submit Feedback'),
+              title: Text(widget.userRole == 'admin' ? 'View Feedback' : 'Submit Feedback'),
               onTap: () {
                 Navigator.pop(context); // Close the drawer
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => const FeedbackScreen(),
+                    builder: (context) => widget.userRole == 'admin'
+                        ? const FeedbackViewScreen()
+                        : FeedbackScreen(username: widget.username),
                   ),
                 );
               },

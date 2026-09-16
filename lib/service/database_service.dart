@@ -107,25 +107,41 @@ class DatabaseService {
         }
         if (oldVersion < 7) {
           await db.execute(
-            'ALTER TABLE industry_partners ADD COLUMN state TEXT DEFAULT ""',
+            'ALTER TABLE industry_partners '
+                'ADD COLUMN state TEXT DEFAULT ""',
           );
 
           await db.execute(
-            'ALTER TABLE hiring_posters ADD COLUMN state TEXT DEFAULT ""',
+            'ALTER TABLE hiring_posters '
+                'ADD COLUMN state TEXT DEFAULT ""',
           );
         }
+        if (oldVersion < 8) {
+          await db.execute('''
+        CREATE TABLE IF NOT EXISTS feedback (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT NOT NULL,
+          rating INTEGER NOT NULL,
+          category TEXT,
+          feature TEXT,
+          comment TEXT,
+          createdAt TEXT NOT NULL
+        )
+      ''');
+        }
+
       },
-      version: 7,
+      version: 8,
     );
   }
 
   Future<void> _onCreate(Database db, int version) async {
     await db.execute(
       'CREATE TABLE Bookings('
-          'id INTEGER PRIMARY KEY AUTOINCREMENT, '
-          'itemName TEXT, '
-          'date TEXT, '
-          'status TEXT)',
+      'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+      'itemName TEXT, '
+      'date TEXT, '
+      'status TEXT)',
     );
     log('TABLE Bookings CREATED');
 
@@ -243,6 +259,18 @@ class DatabaseService {
       INSERT INTO users (username, password, role) 
       VALUES ('admin', 'admin123', 'admin')
     ''');
+
+    await db.execute('''
+      CREATE TABLE feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        rating INTEGER NOT NULL,
+        category TEXT,
+        feature TEXT,
+        comment TEXT,
+        createdAt TEXT NOT NULL
+      )
+    ''');
   }
 
   // --- HIRING POSTER METHODS ---
@@ -283,11 +311,7 @@ class DatabaseService {
 
   Future<int> deleteHiringPoster(int id) async {
     final db = await database;
-    return await db.delete(
-      'hiring_posters',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    return await db.delete('hiring_posters', where: 'id = ?', whereArgs: [id]);
   }
 
   // --- INDUSTRY PARTNER METHODS ---
@@ -329,21 +353,9 @@ class DatabaseService {
 
   Future<void> _seedHardcodedCounselors(Database db) async {
     final List<Map<String, dynamic>> hardcodedCounselors = [
-      {
-        'username': 'Sarah',
-        'password': 'a',
-        'role': 'Career Counselor'
-      },
-      {
-        'username': 'James',
-        'password': 'a',
-        'role': 'Career Counselor'
-      },
-      {
-        'username': 'Emily',
-        'password': 'a',
-        'role': 'Career Counselor'
-      },
+      {'username': 'Sarah', 'password': 'a', 'role': 'Career Counselor'},
+      {'username': 'James', 'password': 'a', 'role': 'Career Counselor'},
+      {'username': 'Emily', 'password': 'a', 'role': 'Career Counselor'},
     ];
 
     for (var counselor in hardcodedCounselors) {
@@ -367,13 +379,13 @@ class DatabaseService {
   }
 
   Future<int> updateUserProfile(
-      String username, {
-        String? name,
-        String? email,
-        String? phone,
-        String? state,
-        String? photoPath,
-      }) async {
+    String username, {
+    String? name,
+    String? email,
+    String? phone,
+    String? state,
+    String? photoPath,
+  }) async {
     final db = await database;
     final updates = <String, dynamic>{};
     if (name != null) updates['name'] = name;
@@ -393,10 +405,10 @@ class DatabaseService {
   }
 
   Future<bool> changePassword(
-      String username,
-      String currentPassword,
-      String newPassword,
-      ) async {
+    String username,
+    String currentPassword,
+    String newPassword,
+  ) async {
     final db = await database;
     final match = await db.query(
       'users',
@@ -421,7 +433,9 @@ class DatabaseService {
     return await db.insert('mock_interviews', request.toMap());
   }
 
-  Future<List<MockInterviewModel>> getStudentMockInterviews(String username) async {
+  Future<List<MockInterviewModel>> getStudentMockInterviews(
+    String username,
+  ) async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(
       'mock_interviews',
@@ -429,7 +443,10 @@ class DatabaseService {
       whereArgs: [username],
       orderBy: 'id DESC',
     );
-    return List.generate(maps.length, (i) => MockInterviewModel.fromMap(maps[i]));
+    return List.generate(
+      maps.length,
+      (i) => MockInterviewModel.fromMap(maps[i]),
+    );
   }
 
   // --- RESUME METHODS ---
@@ -440,7 +457,10 @@ class DatabaseService {
 
   Future<List<ResumeData>> getAllResumes() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('resumes', orderBy: 'id DESC');
+    final List<Map<String, dynamic>> maps = await db.query(
+      'resumes',
+      orderBy: 'id DESC',
+    );
     return List.generate(maps.length, (i) => ResumeData.fromMap(maps[i]));
   }
 
@@ -456,11 +476,7 @@ class DatabaseService {
 
   Future<int> deleteResume(int id) async {
     final db = await database;
-    return await db.delete(
-      'resumes',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    return await db.delete('resumes', where: 'id = ?', whereArgs: [id]);
   }
 
   // --- EVENT METHODS ---
@@ -494,10 +510,10 @@ class DatabaseService {
   Future<int?> getUserId(String username) async {
     final db = await database;
     var results = await db.query(
-        'users',
-        columns: ['id'],
-        where: 'username = ?',
-        whereArgs: [username]
+      'users',
+      columns: ['id'],
+      where: 'username = ?',
+      whereArgs: [username],
     );
     if (results.isNotEmpty) {
       return results.first['id'] as int;
@@ -520,21 +536,27 @@ class DatabaseService {
     return await db.insert('event_registrations', {
       'userId': userId,
       'eventId': eventId,
-      'status': 'pending'
+      'status': 'pending',
     });
   }
 
   Future<List<EventRegistrationModel>> getUserRegistrations(int userId) async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.rawQuery('''
+    final List<Map<String, dynamic>> maps = await db.rawQuery(
+      '''
       SELECT er.id as registrationId, er.status, 
              e.title as eventTitle, e.date, e.time, e.id as eventId
       FROM event_registrations er
       JOIN events e ON er.eventId = e.id
       WHERE er.userId = ?
-    ''', [userId]);
+    ''',
+      [userId],
+    );
 
-    return List.generate(maps.length, (i) => EventRegistrationModel.fromMap(maps[i]));
+    return List.generate(
+      maps.length,
+      (i) => EventRegistrationModel.fromMap(maps[i]),
+    );
   }
 
   Future<List<EventRegistrationModel>> getAllRegistrations() async {
@@ -548,10 +570,17 @@ class DatabaseService {
       JOIN events e ON er.eventId = e.id
     ''');
 
-    return List.generate(maps.length, (i) => EventRegistrationModel.fromMap(maps[i]));
+    return List.generate(
+      maps.length,
+      (i) => EventRegistrationModel.fromMap(maps[i]),
+    );
   }
 
-  Future<void> updateRegistrationStatus(int registrationId, int eventId, String newStatus) async {
+  Future<void> updateRegistrationStatus(
+    int registrationId,
+    int eventId,
+    String newStatus,
+  ) async {
     final db = await database;
 
     await db.update(
@@ -562,10 +591,9 @@ class DatabaseService {
     );
 
     if (newStatus.toLowerCase() == 'accepted') {
-      await db.rawUpdate(
-          'UPDATE events SET booked = booked + 1 WHERE id = ?',
-          [eventId]
-      );
+      await db.rawUpdate('UPDATE events SET booked = booked + 1 WHERE id = ?', [
+        eventId,
+      ]);
     }
   }
 
@@ -575,7 +603,7 @@ class DatabaseService {
     var data = await db.query('Bookings');
     return List.generate(
       data.length,
-          (index) => BookingModel.fromJson(data[index]),
+      (index) => BookingModel.fromJson(data[index]),
     );
   }
 
@@ -602,7 +630,11 @@ class DatabaseService {
   }
 
   // --- USER AUTHENTICATION ---
-  Future<int> registerUser(String username, String password, String role) async {
+  Future<int> registerUser(
+    String username,
+    String password,
+    String role,
+  ) async {
     final db = await database;
     return await db.insert('users', {
       'username': username,
@@ -611,7 +643,10 @@ class DatabaseService {
     });
   }
 
-  Future<Map<String, dynamic>?> loginUser(String username, String password) async {
+  Future<Map<String, dynamic>?> loginUser(
+    String username,
+    String password,
+  ) async {
     final db = await database;
     List<Map<String, dynamic>> results = await db.query(
       'users',
@@ -626,12 +661,15 @@ class DatabaseService {
 
   Future<List<String>> getAcceptedParticipants(int eventId) async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.rawQuery('''
+    final List<Map<String, dynamic>> maps = await db.rawQuery(
+      '''
       SELECT u.username 
       FROM event_registrations er
       JOIN users u ON er.userId = u.id
       WHERE er.eventId = ? AND er.status = 'accepted'
-    ''', [eventId]);
+    ''',
+      [eventId],
+    );
 
     return List.generate(maps.length, (i) => maps[i]['username'] as String);
   }
@@ -672,7 +710,9 @@ class DatabaseService {
     return await db.insert('saved_comparisons', item.toMap());
   }
 
-  Future<List<ComparisonModel>> getComparisons({String searchQuery = ''}) async {
+  Future<List<ComparisonModel>> getComparisons({
+    String searchQuery = '',
+  }) async {
     final db = await database;
     await _ensureComparisonTable(db);
     List<Map<String, dynamic>> maps;
@@ -713,16 +753,30 @@ class DatabaseService {
   // --- ADMIN MOCK INTERVIEW & COUNSELOR METHODS ---
   Future<List<MockInterviewModel>> getAllMockInterviews() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('mock_interviews', orderBy: 'id DESC');
-    return List.generate(maps.length, (i) => MockInterviewModel.fromMap(maps[i]));
+    final List<Map<String, dynamic>> maps = await db.query(
+      'mock_interviews',
+      orderBy: 'id DESC',
+    );
+    return List.generate(
+      maps.length,
+      (i) => MockInterviewModel.fromMap(maps[i]),
+    );
   }
 
   Future<List<Map<String, dynamic>>> getCareerCounselors() async {
     final db = await database;
-    return await db.query('users', where: 'role = ?', whereArgs: ['Career Counselor']);
+    return await db.query(
+      'users',
+      where: 'role = ?',
+      whereArgs: ['Career Counselor'],
+    );
   }
 
-  Future<bool> isCounselorAvailable(String counselorName, String date, String time) async {
+  Future<bool> isCounselorAvailable(
+    String counselorName,
+    String date,
+    String time,
+  ) async {
     final db = await database;
     final results = await db.query(
       'mock_interviews',
@@ -742,7 +796,10 @@ class DatabaseService {
     );
   }
 
-  Future<List<TimetableSlot>> getAdvisorTimetable(String advisorName, String date) async {
+  Future<List<TimetableSlot>> getAdvisorTimetable(
+    String advisorName,
+    String date,
+  ) async {
     final db = await database;
 
     final results = await db.query(
@@ -751,27 +808,32 @@ class DatabaseService {
       whereArgs: [advisorName, date, 'Accepted'],
     );
 
-    final bookedTimes = results.map((r) => r['assignedTime'] as String?).whereType<String>().toSet();
+    final bookedTimes = results
+        .map((r) => r['assignedTime'] as String?)
+        .whereType<String>()
+        .toSet();
 
     List<TimetableSlot> schedule = [];
     for (int i = 9; i <= 17; i++) {
       String timeLabel = '${i.toString().padLeft(2, '0')}:00';
-      schedule.add(TimetableSlot(
-        timeLabel: timeLabel,
-        isBooked: bookedTimes.contains(timeLabel),
-      ));
+      schedule.add(
+        TimetableSlot(
+          timeLabel: timeLabel,
+          isBooked: bookedTimes.contains(timeLabel),
+        ),
+      );
     }
 
     return schedule;
   }
 
   Future<int> assignAdvisorWithDetails(
-      int requestId,
-      String advisorName,
-      String assignedTime,
-      String venue,
-      int duration,
-      ) async {
+    int requestId,
+    String advisorName,
+    String assignedTime,
+    String venue,
+    int duration,
+  ) async {
     final db = await database;
     return await db.update(
       'mock_interviews',
@@ -780,10 +842,34 @@ class DatabaseService {
         'assignedTime': assignedTime,
         'venue': venue,
         'durationMinutes': duration,
-        'status': 'Accepted'
+        'status': 'Accepted',
       },
       where: 'id = ?',
       whereArgs: [requestId],
     );
+  }
+
+  // --- FEEDBACK METHODS ---
+  Future<int> insertFeedback(
+      String username,
+      int rating,
+      String comment, {
+        String? category,
+        String? feature,
+      }) async {
+    final db = await database;
+    return await db.insert('feedback', {
+      'username': username,
+      'rating': rating,
+      'comment': comment,
+      'category': category,
+      'feature': feature,
+      'createdAt': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getAllFeedback() async {
+    final db = await database;
+    return await db.query('feedback', orderBy: 'id DESC');
   }
 }

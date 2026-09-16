@@ -2,14 +2,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../model/resume_model.dart';
 import '../service/database_service.dart';
-import '../service/supabase_service.dart'; // Import Supabase service
+import '../service/supabase_service.dart';
+import 'location_picker_screen.dart';
 
-// --- RESUME HOME TAB ---
+
 class ResumeHomeTab extends StatefulWidget {
   const ResumeHomeTab({super.key});
 
@@ -272,208 +271,8 @@ class _ResumeHistoryPageState extends State<ResumeHistoryPage> {
   }
 }
 
-// --- GOOGLE MAP LOCATION PICKER WITH ADDRESS SEARCH API ---
-class LocationPickerPage extends StatefulWidget {
-  const LocationPickerPage({super.key});
 
-  @override
-  State<LocationPickerPage> createState() => _LocationPickerPageState();
-}
 
-class _LocationPickerPageState extends State<LocationPickerPage> {
-  GoogleMapController? _mapController;
-  final TextEditingController _searchController = TextEditingController();
-
-  LatLng _selectedPosition = const LatLng(3.1390, 101.6869); // Default: Kuala Lumpur
-  String _formattedAddress = '';
-  bool _isGeocoding = false;
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _mapController?.dispose();
-    super.dispose();
-  }
-
-  // API 1: Convert LatLng -> Address String (Reverse Geocoding)
-  Future<void> _getAddressFromLatLng(LatLng position) async {
-    setState(() => _isGeocoding = true);
-    try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        position.latitude,
-        position.longitude,
-      );
-
-      if (placemarks.isNotEmpty) {
-        Placemark place = placemarks[0];
-        List<String> addressParts = [
-          place.street ?? '',
-          place.subLocality ?? '',
-          place.locality ?? '',
-          place.postalCode ?? '',
-          place.administrativeArea ?? '',
-          place.country ?? '',
-        ].where((part) => part.trim().isNotEmpty).toList();
-
-        setState(() {
-          _formattedAddress = addressParts.join(', ');
-        });
-      }
-    } catch (e) {
-      debugPrint('Geocoding error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to fetch address for selected location.')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isGeocoding = false);
-      }
-    }
-  }
-
-  // API 2: Search Address String -> LatLng (Forward Geocoding API)
-  Future<void> _searchLocationFromAddress() async {
-    final query = _searchController.text.trim();
-    if (query.isEmpty) return;
-
-    FocusScope.of(context).unfocus();
-    setState(() => _isGeocoding = true);
-
-    try {
-      List<Location> locations = await locationFromAddress(query);
-      if (locations.isNotEmpty) {
-        Location location = locations.first;
-        LatLng newTarget = LatLng(location.latitude, location.longitude);
-
-        _mapController?.animateCamera(
-          CameraUpdate.newLatLngZoom(newTarget, 16),
-        );
-
-        setState(() {
-          _selectedPosition = newTarget;
-        });
-
-        await _getAddressFromLatLng(newTarget);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No location found for this search.')),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('Address lookup error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not find requested address.')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isGeocoding = false);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Select Location'),
-      ),
-      body: Stack(
-        children: [
-          // MAP
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: _selectedPosition,
-              zoom: 15,
-            ),
-            onMapCreated: (controller) => _mapController = controller,
-            onTap: (LatLng latLng) {
-              setState(() => _selectedPosition = latLng);
-              _getAddressFromLatLng(latLng);
-            },
-            markers: {
-              Marker(
-                markerId: const MarkerId('selected_location'),
-                position: _selectedPosition,
-              ),
-            },
-          ),
-
-          // SEARCH BAR ON TOP OF MAP (API Search)
-          Positioned(
-            top: 16,
-            left: 16,
-            right: 16,
-            child: Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              child: TextField(
-                controller: _searchController,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _searchLocationFromAddress(),
-                decoration: InputDecoration(
-                  hintText: 'Search address or city...',
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.arrow_forward),
-                    onPressed: _searchLocationFromAddress,
-                  ),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                ),
-              ),
-            ),
-          ),
-
-          // BOTTOM CARD (Address Display & Confirm)
-          Positioned(
-            bottom: 24,
-            left: 16,
-            right: 16,
-            child: Card(
-              elevation: 6,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_isGeocoding)
-                      const CircularProgressIndicator()
-                    else
-                      Text(
-                        _formattedAddress.isEmpty
-                            ? 'Tap anywhere on the map or search to pick a location.'
-                            : _formattedAddress,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                      ),
-                    const SizedBox(height: 12),
-                    ElevatedButton.icon(
-                      onPressed: _formattedAddress.isEmpty || _isGeocoding
-                          ? null
-                          : () async {
-                        // Return address to calling page
-                        Navigator.pop(context, _formattedAddress);
-                      },
-                      icon: const Icon(Icons.check),
-                      label: const Text('Confirm Location'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 // --- RESUME BUILDER FORM ---
 class ResumeBuilderForm extends StatefulWidget {
@@ -556,28 +355,51 @@ class _ResumeBuilderFormState extends State<ResumeBuilderForm> {
   }
 
   Future<void> _openMapPicker() async {
-    final String? resultAddress = await Navigator.push<String>(
+    final SelectedLocation? result =
+    await Navigator.push<SelectedLocation>(
       context,
       MaterialPageRoute(
-        builder: (context) => const LocationPickerPage(),
+        builder: (context) =>
+        const LocationPickerScreen(),
       ),
     );
 
-    if (resultAddress != null && resultAddress.isNotEmpty) {
-      setState(() {
-        _addressController.text = resultAddress;
-      });
+    if (result == null) {
+      return;
+    }
 
-      // Optionally save address directly to Supabase table
-      try {
-        final currentUserId = Supabase.instance.client.auth.currentUser?.id ?? 'guest_user';
-        await _supabaseService.saveAddress(
-          userId: currentUserId,
-          address: resultAddress,
-        );
-      } catch (e) {
-        debugPrint('Failed to save address to Supabase: $e');
-      }
+    setState(() {
+      _addressController.text = result.address;
+    });
+
+    // Save address to Supabase
+    try {
+      final currentUserId =
+          Supabase.instance.client.auth.currentUser?.id ??
+              'guest_user';
+
+      await _supabaseService.saveAddress(
+        userId: currentUserId,
+        address: result.address,
+        latitude: result.latitude,
+        longitude: result.longitude,
+      );
+
+      debugPrint(
+        'Address saved: ${result.address}',
+      );
+
+      debugPrint(
+        'Latitude: ${result.latitude}',
+      );
+
+      debugPrint(
+        'Longitude: ${result.longitude}',
+      );
+    } catch (e) {
+      debugPrint(
+        'Failed to save address to Supabase: $e',
+      );
     }
   }
 

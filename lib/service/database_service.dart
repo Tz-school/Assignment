@@ -105,8 +105,17 @@ class DatabaseService {
             )
           ''');
         }
+        if (oldVersion < 7) {
+          await db.execute(
+            'ALTER TABLE industry_partners ADD COLUMN state TEXT DEFAULT ""',
+          );
+
+          await db.execute(
+            'ALTER TABLE hiring_posters ADD COLUMN state TEXT DEFAULT ""',
+          );
+        }
       },
-      version: 6,
+      version: 7,
     );
   }
 
@@ -186,6 +195,7 @@ class DatabaseService {
         email TEXT,
         contactNumber TEXT,
         location TEXT,
+        state TEXT,
         photoPath TEXT,
         FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
       )
@@ -199,6 +209,7 @@ class DatabaseService {
         companyName TEXT NOT NULL,
         email TEXT NOT NULL,
         address TEXT NOT NULL,
+        state TEXT,
         contactNumber TEXT NOT NULL,
         title TEXT NOT NULL,
         description TEXT NOT NULL,

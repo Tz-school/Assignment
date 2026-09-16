@@ -22,6 +22,8 @@ class SupabaseService {
 
   // 2. Insert Resume into Supabase 'resumes' table
   Future<int?> insertResume(ResumeData resume) async {
+
+
     final response = await _supabase.from('resumes').insert({
       'full_name': resume.fullName,
       'age': resume.age,
@@ -34,6 +36,8 @@ class SupabaseService {
       'education': resume.education,
       'created_at': DateTime.now().toIso8601String(),
     }).select('id').single();
+
+
 
     return response['id'] as int?;
   }

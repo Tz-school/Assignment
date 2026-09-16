@@ -1,12 +1,15 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
+
 import 'app_drawer.dart';
 import 'resume_builder_page.dart';
 import 'job_seeker.dart';
-import 'hiring_poster_builder.dart'; // Imported separated widget
+import 'hiring_poster_builder.dart';
+import 'received_resumes.dart';
+
 import '../model/industry_partner_model.dart';
 import '../model/hiring_poster_model.dart';
-import '../model/resume_model.dart';
 import '../service/database_service.dart';
 
 class IndustryPage extends StatefulWidget {
@@ -30,12 +33,16 @@ class _IndustryPageState extends State<IndustryPage> {
 
   bool get _isIndustryPartner {
     final role = widget.userRole.trim().toLowerCase();
-    return role == 'industry' || role == 'industry partner' || role == 'industry_partner';
+
+    return role == 'industry' ||
+        role == 'industry partner' ||
+        role == 'industry_partner';
   }
 
   @override
   void initState() {
     super.initState();
+
     if (_isIndustryPartner) {
       _loadPartnerData();
     } else {
@@ -46,8 +53,11 @@ class _IndustryPageState extends State<IndustryPage> {
   Future<void> _loadPartnerData() async {
     try {
       final id = await DatabaseService().getUserId(widget.username);
+
       if (id != null) {
-        final partner = await DatabaseService().getIndustryPartnerByUserId(id);
+        final partner =
+        await DatabaseService().getIndustryPartnerByUserId(id);
+
         if (mounted) {
           setState(() {
             _userId = id;
@@ -56,26 +66,42 @@ class _IndustryPageState extends State<IndustryPage> {
         }
       }
     } catch (e) {
-      debugPrint('Error loading industry partner profile: $e');
+      debugPrint(
+        'Error loading industry partner profile: $e',
+      );
     } finally {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // ============================================================
+    // INDUSTRY PARTNER
+    // ============================================================
+
     if (_isIndustryPartner) {
       if (_isLoading) {
         return Scaffold(
-          appBar: AppBar(title: const Text('Partner Portal')),
-          body: const Center(child: CircularProgressIndicator()),
-          drawer: AppDrawer(userRole: widget.userRole, username: widget.username),
+          appBar: AppBar(
+            title: const Text('Partner Portal'),
+          ),
+          body: const Center(
+            child: CircularProgressIndicator(),
+          ),
+          drawer: AppDrawer(
+            userRole: widget.userRole,
+            username: widget.username,
+          ),
         );
       }
 
-      final titleName = _partnerProfile?.companyName.isNotEmpty == true
+      final titleName =
+      _partnerProfile?.companyName.isNotEmpty == true
           ? _partnerProfile!.companyName
           : widget.username;
 
@@ -88,24 +114,41 @@ class _IndustryPageState extends State<IndustryPage> {
               isScrollable: true,
               tabAlignment: TabAlignment.start,
               tabs: [
-                Tab(icon: Icon(Icons.campaign), text: 'Hiring Posters'),
-                Tab(icon: Icon(Icons.folder_shared), text: 'Received Resumes'),
+                Tab(
+                  icon: Icon(Icons.campaign),
+                  text: 'Hiring Posters',
+                ),
+                Tab(
+                  icon: Icon(Icons.folder_shared),
+                  text: 'Received Resumes',
+                ),
               ],
             ),
           ),
+
           body: TabBarView(
             children: [
               PartnerPostersTab(
                 userId: _userId,
                 partner: _partnerProfile,
               ),
+
+              // ReceivedResumesTab is now in received_resumes.dart
               const ReceivedResumesTab(),
             ],
           ),
-          drawer: AppDrawer(userRole: widget.userRole, username: widget.username),
+
+          drawer: AppDrawer(
+            userRole: widget.userRole,
+            username: widget.username,
+          ),
         ),
       );
     }
+
+    // ============================================================
+    // NORMAL USER / STUDENT
+    // ============================================================
 
     return DefaultTabController(
       length: 2,
@@ -116,26 +159,36 @@ class _IndustryPageState extends State<IndustryPage> {
             isScrollable: true,
             tabAlignment: TabAlignment.start,
             tabs: [
-              Tab(text: 'Resume Builder'),
-              Tab(text: 'Job Seeker'),
+              Tab(
+                text: 'Resume Builder',
+              ),
+              Tab(
+                text: 'Job Seeker',
+              ),
             ],
           ),
         ),
+
         body: const TabBarView(
           children: [
             ResumeHomeTab(),
             JobSeekerTab(),
           ],
         ),
-        drawer: AppDrawer(userRole: widget.userRole, username: widget.username),
+
+        drawer: AppDrawer(
+          userRole: widget.userRole,
+          username: widget.username,
+        ),
       ),
     );
   }
 }
 
 // ============================================================================
-// PARTNER TAB 1: HIRING POSTERS MANAGEMENT (VIEW & EDIT INCLUDED)
+// PARTNER TAB 1: HIRING POSTERS MANAGEMENT
 // ============================================================================
+
 class PartnerPostersTab extends StatefulWidget {
   final int? userId;
   final IndustryPartner? partner;
@@ -147,10 +200,12 @@ class PartnerPostersTab extends StatefulWidget {
   });
 
   @override
-  State<PartnerPostersTab> createState() => _PartnerPostersTabState();
+  State<PartnerPostersTab> createState() =>
+      _PartnerPostersTabState();
 }
 
-class _PartnerPostersTabState extends State<PartnerPostersTab> {
+class _PartnerPostersTabState
+    extends State<PartnerPostersTab> {
   List<HiringPoster> _posters = [];
   bool _isLoading = true;
 
@@ -162,10 +217,15 @@ class _PartnerPostersTabState extends State<PartnerPostersTab> {
 
   Future<void> _loadPosters() async {
     if (widget.userId == null) {
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = false;
+      });
       return;
     }
-    final list = await DatabaseService().getHiringPostersByUserId(widget.userId!);
+
+    final list = await DatabaseService()
+        .getHiringPostersByUserId(widget.userId!);
+
     if (mounted) {
       setState(() {
         _posters = list;
@@ -174,13 +234,20 @@ class _PartnerPostersTabState extends State<PartnerPostersTab> {
     }
   }
 
-  // Opens form for either Creating (posterToEdit = null) or Editing (posterToEdit provided)
-  void _openPosterFormModal({HiringPoster? posterToEdit}) {
+  // ============================================================
+  // OPEN POSTER FORM
+  // ============================================================
+
+  void _openPosterFormModal({
+    HiringPoster? posterToEdit,
+  }) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(20),
+        ),
       ),
       builder: (context) => PosterFormSheet(
         userId: widget.userId,
@@ -191,58 +258,112 @@ class _PartnerPostersTabState extends State<PartnerPostersTab> {
     );
   }
 
-  // Displays complete poster details inside a Dialog
+  // ============================================================
+  // VIEW POSTER DETAILS
+  // ============================================================
+
   void _viewPosterDetails(HiringPoster poster) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            const Icon(Icons.campaign, color: Colors.blue),
+            const Icon(
+              Icons.campaign,
+              color: Colors.blue,
+            ),
             const SizedBox(width: 8),
-            Expanded(child: Text(poster.title)),
+            Expanded(
+              child: Text(poster.title),
+            ),
           ],
         ),
+
         content: SingleChildScrollView(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment:
+            CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               const Divider(),
-              _detailRow(Icons.business, 'Company', poster.companyName),
-              _detailRow(Icons.email, 'Email', poster.email),
-              _detailRow(Icons.phone, 'Contact', poster.contactNumber),
-              _detailRow(Icons.location_on, 'Address', poster.address),
-              _detailRow(Icons.calendar_today, 'Posted Date', poster.datePosted),
+
+              _detailRow(
+                Icons.business,
+                'Company',
+                poster.companyName,
+              ),
+
+              _detailRow(
+                Icons.email,
+                'Email',
+                poster.email,
+              ),
+
+              _detailRow(
+                Icons.phone,
+                'Contact',
+                poster.contactNumber,
+              ),
+
+              _detailRow(
+                Icons.location_on,
+                'Address',
+                poster.address,
+              ),
+
+              _detailRow(
+                Icons.calendar_today,
+                'Posted Date',
+                poster.datePosted,
+              ),
+
               const SizedBox(height: 12),
+
               const Text(
                 'Job Description & Requirements:',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
+
               const SizedBox(height: 6),
+
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius:
+                  BorderRadius.circular(8),
                 ),
-                child: Text(poster.description),
+                child: Text(
+                  poster.description,
+                ),
               ),
             ],
           ),
         ),
+
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              Navigator.pop(context);
+            },
             child: const Text('Close'),
           ),
+
           ElevatedButton.icon(
             onPressed: () {
               Navigator.pop(context);
-              _openPosterFormModal(posterToEdit: poster);
+
+              _openPosterFormModal(
+                posterToEdit: poster,
+              );
             },
-            icon: const Icon(Icons.edit, size: 18),
+            icon: const Icon(
+              Icons.edit,
+              size: 18,
+            ),
             label: const Text('Edit'),
           ),
         ],
@@ -250,35 +371,79 @@ class _PartnerPostersTabState extends State<PartnerPostersTab> {
     );
   }
 
-  Widget _detailRow(IconData icon, String label, String value) {
+  // ============================================================
+  // DETAIL ROW
+  // ============================================================
+
+  Widget _detailRow(
+      IconData icon,
+      String label,
+      String value,
+      ) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      padding: const EdgeInsets.symmetric(
+        vertical: 4.0,
+      ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+        CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 18, color: Colors.blueAccent),
+          Icon(
+            icon,
+            size: 18,
+            color: Colors.blueAccent,
+          ),
+
           const SizedBox(width: 8),
-          Text('$label: ', style: const TextStyle(fontWeight: FontWeight.bold)),
-          Expanded(child: Text(value.isEmpty ? '-' : value)),
+
+          Text(
+            '$label: ',
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+
+          Expanded(
+            child: Text(
+              value.isEmpty ? '-' : value,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Future<void> _deletePoster(int posterId) async {
-    await DatabaseService().deleteHiringPoster(posterId);
+  // ============================================================
+  // DELETE POSTER
+  // ============================================================
+
+  Future<void> _deletePoster(
+      int posterId,
+      ) async {
+    await DatabaseService()
+        .deleteHiringPoster(posterId);
+
     _loadPosters();
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Poster deleted.')),
+        const SnackBar(
+          content: Text('Poster deleted.'),
+        ),
       );
     }
   }
 
+  // ============================================================
+  // BUILD
+  // ============================================================
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
     }
 
     return Scaffold(
@@ -286,72 +451,150 @@ class _PartnerPostersTabState extends State<PartnerPostersTab> {
           ? Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
+
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisAlignment:
+            MainAxisAlignment.center,
+
             children: [
-              if (widget.partner?.photoPath.isNotEmpty == true)
+              if (widget.partner
+                  ?.photoPath.isNotEmpty ==
+                  true)
                 CircleAvatar(
                   radius: 36,
-                  backgroundImage: FileImage(File(widget.partner!.photoPath)),
+                  backgroundImage: FileImage(
+                    File(
+                      widget.partner!.photoPath,
+                    ),
+                  ),
                 )
               else
-                const Icon(Icons.business, size: 64, color: Colors.blue),
+                const Icon(
+                  Icons.business,
+                  size: 64,
+                  color: Colors.blue,
+                ),
+
               const SizedBox(height: 12),
+
               Text(
-                widget.partner?.companyName ?? 'Industry Partner',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                widget.partner?.companyName ??
+                    'Industry Partner',
+
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
+
               Text(
                 widget.partner?.location ?? '',
-                style: const TextStyle(color: Colors.grey),
+                style: const TextStyle(
+                  color: Colors.grey,
+                ),
               ),
+
               const SizedBox(height: 24),
-              const Text('No hiring posters created yet.'),
+
+              const Text(
+                'No hiring posters created yet.',
+              ),
+
               const SizedBox(height: 16),
+
               ElevatedButton.icon(
-                onPressed: () => _openPosterFormModal(),
-                icon: const Icon(Icons.add),
-                label: const Text('Create Hiring Poster'),
+                onPressed: () =>
+                    _openPosterFormModal(),
+
+                icon: const Icon(
+                  Icons.add,
+                ),
+
+                label: const Text(
+                  'Create Hiring Poster',
+                ),
               ),
             ],
           ),
         ),
       )
+
           : ListView.builder(
         padding: const EdgeInsets.all(16),
+
         itemCount: _posters.length,
+
         itemBuilder: (context, index) {
           final poster = _posters[index];
 
           return Card(
-            margin: const EdgeInsets.only(bottom: 12),
+            margin: const EdgeInsets.only(
+              bottom: 12,
+            ),
+
             child: ListTile(
-              onTap: () => _viewPosterDetails(poster),
+              onTap: () =>
+                  _viewPosterDetails(poster),
+
               leading: const CircleAvatar(
-                backgroundColor: Colors.blueAccent,
-                child: Icon(Icons.campaign, color: Colors.white),
+                backgroundColor:
+                Colors.blueAccent,
+
+                child: Icon(
+                  Icons.campaign,
+                  color: Colors.white,
+                ),
               ),
+
               title: Text(
                 poster.title,
-                style: const TextStyle(fontWeight: FontWeight.bold),
+
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
+
               subtitle: Text(
-                '${poster.companyName} • ${poster.contactNumber}\n${poster.description}',
+                '${poster.companyName} • '
+                    '${poster.contactNumber}\n'
+                    '${poster.description}',
+
                 maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+                overflow:
+                TextOverflow.ellipsis,
               ),
+
               isThreeLine: true,
+
               trailing: Row(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisSize:
+                MainAxisSize.min,
+
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.edit, color: Colors.blue),
-                    onPressed: () => _openPosterFormModal(posterToEdit: poster),
+                    icon: const Icon(
+                      Icons.edit,
+                      color: Colors.blue,
+                    ),
+
+                    onPressed: () =>
+                        _openPosterFormModal(
+                          posterToEdit: poster,
+                        ),
                   ),
+
                   IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
+                    icon: const Icon(
+                      Icons.delete,
+                      color: Colors.red,
+                    ),
+
                     onPressed: () {
-                      if (poster.id != null) _deletePoster(poster.id!);
+                      if (poster.id != null) {
+                        _deletePoster(
+                          poster.id!,
+                        );
+                      }
                     },
                   ),
                 ],
@@ -360,87 +603,22 @@ class _PartnerPostersTabState extends State<PartnerPostersTab> {
           );
         },
       ),
-      floatingActionButton: _posters.isNotEmpty
+
+      floatingActionButton:
+      _posters.isNotEmpty
           ? FloatingActionButton.extended(
-        onPressed: () => _openPosterFormModal(),
-        icon: const Icon(Icons.add),
-        label: const Text('New Poster'),
+        onPressed: () =>
+            _openPosterFormModal(),
+
+        icon: const Icon(
+          Icons.add,
+        ),
+
+        label: const Text(
+          'New Poster',
+        ),
       )
           : null,
-    );
-  }
-}
-
-// ============================================================================
-// PARTNER TAB 2: RECEIVE USER RESUMES FROM DATABASE
-// ============================================================================
-class ReceivedResumesTab extends StatefulWidget {
-  const ReceivedResumesTab({super.key});
-
-  @override
-  State<ReceivedResumesTab> createState() => _ReceivedResumesTabState();
-}
-
-class _ReceivedResumesTabState extends State<ReceivedResumesTab> {
-  List<ResumeData> _resumes = [];
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadResumes();
-  }
-
-  Future<void> _loadResumes() async {
-    final list = await DatabaseService().getAllResumes();
-    if (mounted) {
-      setState(() {
-        _resumes = list;
-        _isLoading = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_resumes.isEmpty) {
-      return const Center(
-        child: Text('No job applicant resumes received yet.'),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _resumes.length,
-      itemBuilder: (context, index) {
-        final resume = _resumes[index];
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundImage: FileImage(resume.profileImage),
-            ),
-            title: Text(resume.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text('${resume.gender} • Age ${resume.age}\nEmail: ${resume.email}'),
-            isThreeLine: true,
-            trailing: ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => ResumeResultPage(data: resume),
-                  ),
-                );
-              },
-              child: const Text('View Resume'),
-            ),
-          ),
-        );
-      },
     );
   }
 }

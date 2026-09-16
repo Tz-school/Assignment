@@ -30,13 +30,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_map: ^7.0.0
+  latlong2: ^0.9.1
   image_picker: ^1.0.7
   geolocator: ^13.0.1
   geocoding: ^4.0.0
   http: ^1.2.2
   shared_preferences: ^2.5.5
   url_launcher: ^6.3.2
-  google_maps_flutter: ^2.10.0
   supabase_flutter: ^2.0.0
 
 

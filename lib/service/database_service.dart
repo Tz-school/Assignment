@@ -108,12 +108,12 @@ class DatabaseService {
         if (oldVersion < 7) {
           await db.execute(
             'ALTER TABLE industry_partners '
-                'ADD COLUMN state TEXT DEFAULT ""',
+            'ADD COLUMN state TEXT DEFAULT ""',
           );
 
           await db.execute(
             'ALTER TABLE hiring_posters '
-                'ADD COLUMN state TEXT DEFAULT ""',
+            'ADD COLUMN state TEXT DEFAULT ""',
           );
         }
         if (oldVersion < 8) {
@@ -142,9 +142,13 @@ class DatabaseService {
         )
       ''');
         }
-
+        if (oldVersion < 10) {
+          await db.execute(
+            "ALTER TABLE users ADD COLUMN Banned TEXT NOT NULL DEFAULT 'No'",
+          );
+        }
       },
-      version: 9,
+      version: 10,
     );
   }
 
@@ -168,7 +172,8 @@ class DatabaseService {
         email TEXT,
         phone TEXT,
         state TEXT,
-        photoPath TEXT
+        photoPath TEXT,
+        Banned TEXT NOT NULL DEFAULT 'No'
       )
     ''');
 
@@ -326,10 +331,12 @@ class DatabaseService {
   }
 
   Future<List<Map<String, dynamic>>> getApplicationsByHiringPoster(
-      int hiringPosterId) async {
+    int hiringPosterId,
+  ) async {
     final db = await database;
 
-    return await db.rawQuery('''
+    return await db.rawQuery(
+      '''
     SELECT
       a.id AS applicationId,
       a.studentUsername,
@@ -346,7 +353,9 @@ class DatabaseService {
       ON a.hiringPosterId = h.id
     WHERE a.hiringPosterId = ?
     ORDER BY a.id DESC
-  ''', [hiringPosterId]);
+  ''',
+      [hiringPosterId],
+    );
   }
 
   // --- HIRING POSTER METHODS ---
@@ -511,7 +520,12 @@ class DatabaseService {
 
   Future<int> cancelMockInterview(int id) async {
     final db = await database;
-    return await db.update('mock_interviews', {'status': 'Cancelled'}, where: 'id = ?', whereArgs: [id]);
+    return await db.update(
+      'mock_interviews',
+      {'status': 'Cancelled'},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future<List<MockInterviewModel>> getStudentMockInterviews(
@@ -729,15 +743,25 @@ class DatabaseService {
     String password,
   ) async {
     final db = await database;
-    List<Map<String, dynamic>> results = await db.query(
+
+    final results = await db.query(
       'users',
       where: 'username = ? AND password = ?',
       whereArgs: [username, password],
     );
-    if (results.isNotEmpty) {
-      return results.first;
+
+    if (results.isEmpty) {
+      return null;
     }
-    return null;
+
+    final user = Map<String, dynamic>.from(results.first);
+    final bannedValue = user['Banned']?.toString().trim().toLowerCase();
+
+    if (bannedValue == 'yes') {
+      return {...user, 'isBanned': true};
+    }
+
+    return {...user, 'isBanned': false};
   }
 
   Future<List<String>> getAcceptedParticipants(int eventId) async {
@@ -932,12 +956,12 @@ class DatabaseService {
 
   // --- FEEDBACK METHODS ---
   Future<int> insertFeedback(
-      String username,
-      int rating,
-      String comment, {
-        String? category,
-        String? feature,
-      }) async {
+    String username,
+    int rating,
+    String comment, {
+    String? category,
+    String? feature,
+  }) async {
     final db = await database;
     return await db.insert('feedback', {
       'username': username,
@@ -957,5 +981,36 @@ class DatabaseService {
   Future<int> deleteFeedback(int id) async {
     final db = await database;
     return await db.delete('feedback', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // --- ADMIN USER MANAGEMENT METHODS ---
+
+  Future<List<Map<String, dynamic>>> getStudentUsers() async {
+    final db = await database;
+
+    return await db.query(
+      'users',
+      where: 'role = ?',
+      whereArgs: ['student'],
+      orderBy: 'LOWER(COALESCE(name, username)) ASC',
+    );
+  }
+
+  Future<int> updateUserBanStatus({
+    required String username,
+    required bool banned,
+  }) async {
+    final db = await database;
+
+    return await db.update(
+      'users',
+      {'Banned': banned ? 'Yes' : 'No'},
+      where: 'username = ? AND role = ?',
+      whereArgs: [username, 'student'],
+    );
+  }
+
+  bool isUserBanned(Map<String, dynamic> user) {
+    return user['Banned']?.toString().toLowerCase() == 'yes';
   }
 }

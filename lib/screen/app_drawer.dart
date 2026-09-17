@@ -8,6 +8,7 @@ import '../service/supabase_service.dart';
 import 'feedback_submission.dart';
 import 'feedback_view.dart';
 import 'chat_screen.dart';
+import 'manage_users_screen.dart';
 
 class AppDrawer extends StatefulWidget {
   final String userRole;
@@ -230,16 +231,13 @@ class _AppDrawerState extends State<AppDrawer> {
       child: SafeArea(
         child: Column(
           children: [
-
-
             UserAccountsDrawerHeader(
               decoration:
               const BoxDecoration(
                 color: Colors.indigo,
               ),
 
-              currentAccountPicture:
-              _buildProfilePicture(),
+              currentAccountPicture: _buildProfilePicture(),
 
               accountName: Text(
                 _displayName ??
@@ -257,7 +255,7 @@ class _AppDrawerState extends State<AppDrawer> {
               ),
             ),
 
-
+            if (widget.userRole != 'admin')
             ListTile(
               leading: const Icon(
                 Icons.edit,
@@ -281,11 +279,9 @@ class _AppDrawerState extends State<AppDrawer> {
                   ),
                 );
 
-
                 await _loadProfile();
               },
             ),
-
 
             if (widget.userRole != 'admin')
               ListTile(
@@ -349,8 +345,6 @@ class _AppDrawerState extends State<AppDrawer> {
                 },
               ),
 
-
-
             ListTile(
               leading: const Icon(
                 Icons.feedback_outlined,
@@ -380,13 +374,30 @@ class _AppDrawerState extends State<AppDrawer> {
               },
             ),
 
+            if (widget.userRole == 'admin')
+              ListTile(
+                leading: const Icon(
+                  Icons.manage_accounts,
+                  color: Colors.indigo,
+                ),
+                title: const Text('Manage Users'),
+                onTap: () async {
+                  Navigator.pop(context);
+
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ManageUsersScreen(),
+                    ),
+                  );
+                },
+              ),
+
             const Spacer(),
 
             const Divider(
               height: 1,
             ),
-
-
 
             ListTile(
               leading: const Icon(

@@ -205,13 +205,35 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       final user = await DatabaseService().loginUser(username, password);
-      if (user != null) {
-        _navigateToMain(username: user['username'], role: user['role']);
-      } else {
+
+      if (user == null) {
+        if (!mounted) return;
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Invalid username or password')),
+          const SnackBar(
+            content: Text('Invalid username or password'),
+          ),
         );
+        return;
       }
+
+      if (user['isBanned'] == true) {
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'This account has been banned. Please contact the administrator.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      _navigateToMain(
+        username: user['username'].toString(),
+        role: user['role'].toString(),
+      );
     }
   }
 

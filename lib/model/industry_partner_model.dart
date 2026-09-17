@@ -5,6 +5,7 @@ class IndustryPartner {
   final String email;
   final String contactNumber;
   final String location;
+  final String state;
   final String photoPath;
 
   IndustryPartner({
@@ -14,6 +15,7 @@ class IndustryPartner {
     required this.email,
     required this.contactNumber,
     required this.location,
+    required this.state,
     required this.photoPath,
   });
 
@@ -25,6 +27,7 @@ class IndustryPartner {
       'email': email,
       'contactNumber': contactNumber,
       'location': location,
+      'state': state,
       'photoPath': photoPath,
     };
   }
@@ -37,6 +40,7 @@ class IndustryPartner {
       email: map['email'] ?? '',
       contactNumber: map['contactNumber'] ?? '',
       location: map['location'] ?? '',
+      state: map['state'] as String?? '',
       photoPath: map['photoPath'] ?? '',
     );
   }

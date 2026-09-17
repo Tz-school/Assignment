@@ -1,10 +1,10 @@
-
 class HiringPoster {
   final int? id;
   final int? userId;
   final String companyName;
   final String email;
   final String address;
+  final String state;
   final String contactNumber;
   final String title;
   final String description;
@@ -17,6 +17,7 @@ class HiringPoster {
     required this.companyName,
     required this.email,
     required this.address,
+    required this.state,
     required this.contactNumber,
     required this.title,
     required this.description,
@@ -24,7 +25,7 @@ class HiringPoster {
     required this.datePosted,
   });
 
-  /// Convert a HiringPoster object into a Map for SQLite database operations
+  /// Convert a HiringPoster object into a Map for SQLite
   Map<String, dynamic> toMap({int? assignedUserId}) {
     return {
       if (id != null) 'id': id,
@@ -32,6 +33,7 @@ class HiringPoster {
       'companyName': companyName,
       'email': email,
       'address': address,
+      'state': state,
       'contactNumber': contactNumber,
       'title': title,
       'description': description,
@@ -40,7 +42,7 @@ class HiringPoster {
     };
   }
 
-  /// Factory constructor to construct a HiringPoster object from SQLite database Map
+
   factory HiringPoster.fromMap(Map<String, dynamic> map) {
     return HiringPoster(
       id: map['id'] as int?,
@@ -48,6 +50,7 @@ class HiringPoster {
       companyName: map['companyName'] as String? ?? '',
       email: map['email'] as String? ?? '',
       address: map['address'] as String? ?? '',
+      state: map['state'] as String? ?? '',
       contactNumber: map['contactNumber'] as String? ?? '',
       title: map['title'] as String? ?? '',
       description: map['description'] as String? ?? '',

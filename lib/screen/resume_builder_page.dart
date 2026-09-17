@@ -2,12 +2,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:geocoding/geocoding.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../model/resume_model.dart';
 import '../service/database_service.dart';
+import '../service/supabase_service.dart';
+import 'location_picker_screen.dart';
 
-// --- RESUME HOME TAB ---
+
 class ResumeHomeTab extends StatefulWidget {
   const ResumeHomeTab({super.key});
 
@@ -18,6 +19,7 @@ class ResumeHomeTab extends StatefulWidget {
 class _ResumeHomeTabState extends State<ResumeHomeTab> {
   List<ResumeData> _resumeList = [];
   bool _isLoading = true;
+  final _supabaseService = SupabaseService();
 
   @override
   void initState() {
@@ -54,7 +56,12 @@ class _ResumeHomeTabState extends State<ResumeHomeTab> {
 
     if (newData != null) {
       try {
+        // 1. Save locally to SQLite
         int insertedId = await DatabaseService().insertResume(newData);
+
+        // 2. Save to Supabase DB
+        await _supabaseService.insertResume(newData);
+
         await _loadResumes();
 
         if (!mounted) return;
@@ -81,6 +88,7 @@ class _ResumeHomeTabState extends State<ResumeHomeTab> {
               data: savedResume,
               onSave: (updatedData) async {
                 await DatabaseService().updateResume(updatedData);
+                await _supabaseService.updateResume(updatedData);
                 _loadResumes();
               },
             ),
@@ -173,6 +181,8 @@ class ResumeHistoryPage extends StatefulWidget {
 }
 
 class _ResumeHistoryPageState extends State<ResumeHistoryPage> {
+  final _supabaseService = SupabaseService();
+
   Future<void> _showDeleteDialog(BuildContext context, ResumeData resume) async {
     return showDialog<void>(
       context: context,
@@ -194,6 +204,7 @@ class _ResumeHistoryPageState extends State<ResumeHistoryPage> {
               onPressed: () async {
                 if (resume.id != null) {
                   await DatabaseService().deleteResume(resume.id!);
+                  await _supabaseService.deleteResume(resume.id!);
                 }
                 widget.onUpdateList();
                 if (!context.mounted) return;
@@ -245,6 +256,7 @@ class _ResumeHistoryPageState extends State<ResumeHistoryPage> {
                       data: resume,
                       onSave: (updatedData) async {
                         await DatabaseService().updateResume(updatedData);
+                        await _supabaseService.updateResume(updatedData);
                         widget.onUpdateList();
                       },
                     ),
@@ -259,120 +271,8 @@ class _ResumeHistoryPageState extends State<ResumeHistoryPage> {
   }
 }
 
-// --- GOOGLE MAP LOCATION PICKER ---
-class LocationPickerPage extends StatefulWidget {
-  const LocationPickerPage({super.key});
 
-  @override
-  State<LocationPickerPage> createState() => _LocationPickerPageState();
-}
 
-class _LocationPickerPageState extends State<LocationPickerPage> {
-  LatLng _selectedPosition = const LatLng(3.1390, 101.6869); // Default position: Kuala Lumpur
-  String _formattedAddress = '';
-  bool _isGeocoding = false;
-
-  Future<void> _getAddressFromLatLng(LatLng position) async {
-    setState(() => _isGeocoding = true);
-    try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        position.latitude,
-        position.longitude,
-      );
-
-      if (placemarks.isNotEmpty) {
-        Placemark place = placemarks[0];
-        List<String> addressParts = [
-          place.street ?? '',
-          place.subLocality ?? '',
-          place.locality ?? '',
-          place.postalCode ?? '',
-          place.administrativeArea ?? '',
-          place.country ?? '',
-        ].where((part) => part.trim().isNotEmpty).toList();
-
-        setState(() {
-          _formattedAddress = addressParts.join(', ');
-        });
-      }
-    } catch (e) {
-      debugPrint('Geocoding error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to fetch address for selected location.')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isGeocoding = false);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Select Location'),
-      ),
-      body: Stack(
-        children: [
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: _selectedPosition,
-              zoom: 15,
-            ),
-            onTap: (LatLng latLng) {
-              setState(() => _selectedPosition = latLng);
-              _getAddressFromLatLng(latLng);
-            },
-            markers: {
-              Marker(
-                markerId: const MarkerId('selected_location'),
-                position: _selectedPosition,
-              ),
-            },
-          ),
-          Positioned(
-            bottom: 24,
-            left: 16,
-            right: 16,
-            child: Card(
-              elevation: 6,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_isGeocoding)
-                      const CircularProgressIndicator()
-                    else
-                      Text(
-                        _formattedAddress.isEmpty
-                            ? 'Tap anywhere on the map to pick a location.'
-                            : _formattedAddress,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                      ),
-                    const SizedBox(height: 12),
-                    ElevatedButton.icon(
-                      onPressed: _formattedAddress.isEmpty || _isGeocoding
-                          ? null
-                          : () => Navigator.pop(context, _formattedAddress),
-                      icon: const Icon(Icons.check),
-                      label: const Text('Confirm Location'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 // --- RESUME BUILDER FORM ---
 class ResumeBuilderForm extends StatefulWidget {
@@ -387,6 +287,7 @@ class ResumeBuilderForm extends StatefulWidget {
 class _ResumeBuilderFormState extends State<ResumeBuilderForm> {
   final _formKey = GlobalKey<FormState>();
   final ImagePicker _picker = ImagePicker();
+  final _supabaseService = SupabaseService();
 
   late TextEditingController _nameController;
   late TextEditingController _ageController;
@@ -454,17 +355,51 @@ class _ResumeBuilderFormState extends State<ResumeBuilderForm> {
   }
 
   Future<void> _openMapPicker() async {
-    final String? resultAddress = await Navigator.push<String>(
+    final SelectedLocation? result =
+    await Navigator.push<SelectedLocation>(
       context,
       MaterialPageRoute(
-        builder: (context) => const LocationPickerPage(),
+        builder: (context) =>
+        const LocationPickerScreen(),
       ),
     );
 
-    if (resultAddress != null && resultAddress.isNotEmpty) {
-      setState(() {
-        _addressController.text = resultAddress;
-      });
+    if (result == null) {
+      return;
+    }
+
+    setState(() {
+      _addressController.text = result.address;
+    });
+
+    // Save address to Supabase
+    try {
+      final currentUserId =
+          Supabase.instance.client.auth.currentUser?.id ??
+              'guest_user';
+
+      await _supabaseService.saveAddress(
+        userId: currentUserId,
+        address: result.address,
+        latitude: result.latitude,
+        longitude: result.longitude,
+      );
+
+      debugPrint(
+        'Address saved: ${result.address}',
+      );
+
+      debugPrint(
+        'Latitude: ${result.latitude}',
+      );
+
+      debugPrint(
+        'Longitude: ${result.longitude}',
+      );
+    } catch (e) {
+      debugPrint(
+        'Failed to save address to Supabase: $e',
+      );
     }
   }
 
@@ -828,6 +763,11 @@ class _ResumeResultPageState extends State<ResumeResultPage> {
                   ],
                 ),
                 const Divider(height: 32, thickness: 2),
+                if (_currentData.address.isNotEmpty) ...[
+                  const Text('ADDRESS', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
+                  Text(_currentData.address, style: const TextStyle(fontSize: 15, height: 1.5)),
+                  const SizedBox(height: 24),
+                ],
                 if (_currentData.summary.isNotEmpty) ...[
                   const Text('SUMMARY', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
                   Text(_currentData.summary, style: const TextStyle(fontSize: 15, height: 1.5)),

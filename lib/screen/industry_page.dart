@@ -1,13 +1,10 @@
 import 'dart:io';
-
 import 'package:flutter/material.dart';
-
 import 'app_drawer.dart';
 import 'resume_builder_page.dart';
 import 'job_seeker.dart';
 import 'hiring_poster_builder.dart';
 import 'received_resumes.dart';
-
 import '../model/industry_partner_model.dart';
 import '../model/hiring_poster_model.dart';
 import '../service/database_service.dart';
@@ -80,9 +77,7 @@ class _IndustryPageState extends State<IndustryPage> {
 
   @override
   Widget build(BuildContext context) {
-    // ============================================================
-    // INDUSTRY PARTNER
-    // ============================================================
+
 
     if (_isIndustryPartner) {
       if (_isLoading) {
@@ -133,8 +128,10 @@ class _IndustryPageState extends State<IndustryPage> {
                 partner: _partnerProfile,
               ),
 
-              // ReceivedResumesTab is now in received_resumes.dart
-              const ReceivedResumesTab(),
+
+              ReceivedResumesTab(
+                currentUsername: widget.username,
+              ),
             ],
           ),
 
@@ -146,9 +143,7 @@ class _IndustryPageState extends State<IndustryPage> {
       );
     }
 
-    // ============================================================
-    // NORMAL USER / STUDENT
-    // ============================================================
+
 
     return DefaultTabController(
       length: 2,
@@ -185,9 +180,7 @@ class _IndustryPageState extends State<IndustryPage> {
   }
 }
 
-// ============================================================================
-// PARTNER TAB 1: HIRING POSTERS MANAGEMENT
-// ============================================================================
+
 
 class PartnerPostersTab extends StatefulWidget {
   final int? userId;
@@ -234,9 +227,7 @@ class _PartnerPostersTabState
     }
   }
 
-  // ============================================================
-  // OPEN POSTER FORM
-  // ============================================================
+
 
   void _openPosterFormModal({
     HiringPoster? posterToEdit,
@@ -258,9 +249,7 @@ class _PartnerPostersTabState
     );
   }
 
-  // ============================================================
-  // VIEW POSTER DETAILS
-  // ============================================================
+
 
   void _viewPosterDetails(HiringPoster poster) {
     showDialog(
@@ -371,9 +360,7 @@ class _PartnerPostersTabState
     );
   }
 
-  // ============================================================
-  // DETAIL ROW
-  // ============================================================
+
 
   Widget _detailRow(
       IconData icon,
@@ -413,9 +400,7 @@ class _PartnerPostersTabState
     );
   }
 
-  // ============================================================
-  // DELETE POSTER
-  // ============================================================
+
 
   Future<void> _deletePoster(
       int posterId,
@@ -434,9 +419,7 @@ class _PartnerPostersTabState
     }
   }
 
-  // ============================================================
-  // BUILD
-  // ============================================================
+
 
   @override
   Widget build(BuildContext context) {

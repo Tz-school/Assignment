@@ -56,10 +56,10 @@ class _ResumeHomeTabState extends State<ResumeHomeTab> {
 
     if (newData != null) {
       try {
-        // 1. Save locally to SQLite
+
         int insertedId = await DatabaseService().insertResume(newData);
 
-        // 2. Save to Supabase DB
+
         await _supabaseService.insertResume(newData);
 
         await _loadResumes();
@@ -165,7 +165,7 @@ class _ResumeHomeTabState extends State<ResumeHomeTab> {
   }
 }
 
-// --- RESUME HISTORY PAGE ---
+
 class ResumeHistoryPage extends StatefulWidget {
   final List<ResumeData> resumeList;
   final VoidCallback onUpdateList;
@@ -274,7 +274,7 @@ class _ResumeHistoryPageState extends State<ResumeHistoryPage> {
 
 
 
-// --- RESUME BUILDER FORM ---
+
 class ResumeBuilderForm extends StatefulWidget {
   final ResumeData? initialData;
 
@@ -372,7 +372,7 @@ class _ResumeBuilderFormState extends State<ResumeBuilderForm> {
       _addressController.text = result.address;
     });
 
-    // Save address to Supabase
+
     try {
       final currentUserId =
           Supabase.instance.client.auth.currentUser?.id ??
@@ -404,62 +404,145 @@ class _ResumeBuilderFormState extends State<ResumeBuilderForm> {
   }
 
   Future<void> _selectAge() async {
-    int tens = 0;
-    int units = 0;
+    int tens = 1;
+    int units = 8;
 
     await showDialog(
       context: context,
       builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Select Age', textAlign: TextAlign.center),
-          content: SizedBox(
-            height: 150,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: ListWheelScrollView.useDelegate(
-                    itemExtent: 40,
-                    physics: const FixedExtentScrollPhysics(),
-                    onSelectedItemChanged: (index) => tens = index,
-                    childDelegate: ListWheelChildBuilderDelegate(
-                      childCount: 10,
-                      builder: (context, index) => Center(
-                        child: Text(index.toString(), style: const TextStyle(fontSize: 24)),
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text(
+                'Select Age',
+                textAlign: TextAlign.center,
+              ),
+
+              content: SizedBox(
+                height: 150,
+                child: Row(
+                  mainAxisAlignment:
+                  MainAxisAlignment.center,
+                  children: [
+
+                    Expanded(
+                      child:
+                      ListWheelScrollView.useDelegate(
+                        itemExtent: 40,
+                        physics:
+                        const FixedExtentScrollPhysics(),
+
+                        onSelectedItemChanged:
+                            (index) {
+                          setDialogState(() {
+                            tens = index + 1;
+                          });
+                        },
+
+                        childDelegate:
+                        ListWheelChildBuilderDelegate(
+                          childCount: 9,
+                          builder:
+                              (context, index) {
+                            return Center(
+                              child: Text(
+                                (index + 1).toString(),
+                                style:
+                                const TextStyle(
+                                  fontSize: 24,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
+
+                    const Text(
+                      ':',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight:
+                        FontWeight.bold,
+                      ),
+                    ),
+
+                    Expanded(
+                      child:
+                      ListWheelScrollView.useDelegate(
+                        itemExtent: 40,
+                        physics:
+                        const FixedExtentScrollPhysics(),
+
+                        onSelectedItemChanged:
+                            (index) {
+                          setDialogState(() {
+                            units = index;
+                          });
+                        },
+
+                        childDelegate:
+                        ListWheelChildBuilderDelegate(
+                          childCount: 10,
+                          builder:
+                              (context, index) {
+                            return Center(
+                              child: Text(
+                                index.toString(),
+                                style:
+                                const TextStyle(
+                                  fontSize: 24,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  child: const Text(
+                    'Cancel',
                   ),
                 ),
-                const Text(':', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                Expanded(
-                  child: ListWheelScrollView.useDelegate(
-                    itemExtent: 40,
-                    physics: const FixedExtentScrollPhysics(),
-                    onSelectedItemChanged: (index) => units = index,
-                    childDelegate: ListWheelChildBuilderDelegate(
-                      childCount: 10,
-                      builder: (context, index) => Center(
-                        child: Text(index.toString(), style: const TextStyle(fontSize: 24)),
-                      ),
-                    ),
+
+                ElevatedButton(
+                  onPressed: () {
+                    final age =
+                        (tens * 10) + units;
+
+
+                    if (age < 18) {
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Age must be 18 or above.',
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+
+                    _ageController.text =
+                        age.toString();
+
+                    Navigator.pop(context);
+                  },
+                  child: const Text(
+                    'Confirm',
                   ),
                 ),
               ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                _ageController.text = '$tens$units';
-                Navigator.pop(context);
-              },
-              child: const Text('Confirm'),
-            ),
-          ],
+            );
+          },
         );
       },
     );

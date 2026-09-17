@@ -129,9 +129,22 @@ class DatabaseService {
         )
       ''');
         }
+        if (oldVersion < 9) {
+          await db.execute('''
+        CREATE TABLE IF NOT EXISTS applications (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          resumeId INTEGER NOT NULL,
+          hiringPosterId INTEGER NOT NULL,
+          studentUsername TEXT NOT NULL,
+          dateApplied TEXT NOT NULL,
+          FOREIGN KEY (resumeId) REFERENCES resumes(id) ON DELETE CASCADE,
+          FOREIGN KEY (hiringPosterId) REFERENCES hiring_posters(id) ON DELETE CASCADE
+        )
+      ''');
+        }
 
       },
-      version: 8,
+      version: 9,
     );
   }
 
@@ -271,6 +284,69 @@ class DatabaseService {
         createdAt TEXT NOT NULL
       )
     ''');
+  }
+
+  // ================= APPLICATIONS =================
+
+  Future<int> submitApplication({
+    required int resumeId,
+    required int hiringPosterId,
+    required String studentUsername,
+  }) async {
+    final db = await database;
+
+    return await db.insert('applications', {
+      'resumeId': resumeId,
+      'hiringPosterId': hiringPosterId,
+      'studentUsername': studentUsername,
+      'dateApplied': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getAllApplications() async {
+    final db = await database;
+
+    return await db.rawQuery('''
+    SELECT
+      a.id AS applicationId,
+      a.studentUsername,
+      a.dateApplied,
+      a.resumeId,
+      a.hiringPosterId,
+      h.title AS hiringPosterTitle,
+      h.companyName,
+      r.*
+    FROM applications a
+    INNER JOIN resumes r
+      ON a.resumeId = r.id
+    INNER JOIN hiring_posters h
+      ON a.hiringPosterId = h.id
+    ORDER BY a.id DESC
+  ''');
+  }
+
+  Future<List<Map<String, dynamic>>> getApplicationsByHiringPoster(
+      int hiringPosterId) async {
+    final db = await database;
+
+    return await db.rawQuery('''
+    SELECT
+      a.id AS applicationId,
+      a.studentUsername,
+      a.dateApplied,
+      a.resumeId,
+      a.hiringPosterId,
+      h.title AS hiringPosterTitle,
+      h.companyName,
+      r.*
+    FROM applications a
+    INNER JOIN resumes r
+      ON a.resumeId = r.id
+    INNER JOIN hiring_posters h
+      ON a.hiringPosterId = h.id
+    WHERE a.hiringPosterId = ?
+    ORDER BY a.id DESC
+  ''', [hiringPosterId]);
   }
 
   // --- HIRING POSTER METHODS ---

@@ -19,11 +19,11 @@ class CampusLocation {
 }
 
 const List<CampusLocation> kCampusLocations = [
-  CampusLocation('L201, Main Library', latitude: 3.2173321637368133, longitude: 101.72759358871654),
+  CampusLocation('Main Library', latitude: 3.2173321637368133, longitude: 101.72759358871654),
   CampusLocation('Student Cafeteria', latitude: 3.214019495382605, longitude: 101.72680233705995),
   CampusLocation('Career Center Office', latitude: 3.2152768109484704, longitude: 101.7265622793334),
   CampusLocation('Auditorium', latitude: 3.2164591414335, longitude: 101.72951136816741),
-  CampusLocation('N301, Block N', latitude: 3.2172842372411377, longitude: 101.73042805834564),
+  CampusLocation('Block N', latitude: 3.2172842372411377, longitude: 101.73042805834564),
   CampusLocation('Online (Video Call)'),
 ];
 

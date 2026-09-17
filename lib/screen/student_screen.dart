@@ -40,6 +40,113 @@ double _distanceInMeters(double lat1, double lon1, double lat2, double lon2) {
 
 double _deg2rad(double deg) => deg * (pi / 180);
 
+// --- Shared date/time + status helpers (used across all views below) ------
+
+/// Parses a time label that may be 24-hour ("14:00"), 12-hour with AM/PM
+/// ("2:00 PM"), or already zero-padded ("09:00"). Returns null if it can't
+/// be understood.
+TimeOfDay? _parseFlexibleTimeLabel(String label) {
+  try {
+    final cleaned = label.trim().toUpperCase();
+    final isPM = cleaned.contains('PM');
+    final isAM = cleaned.contains('AM');
+    final numeric = cleaned.replaceAll(RegExp(r'[^0-9:]'), '');
+    final parts = numeric.split(':');
+    if (parts.isEmpty || parts.first.isEmpty) return null;
+    int hour = int.parse(parts[0]);
+    int minute = parts.length > 1 && parts[1].isNotEmpty ? int.parse(parts[1]) : 0;
+    if (isPM && hour != 12) hour += 12;
+    if (isAM && hour == 12) hour = 0;
+    return TimeOfDay(hour: hour % 24, minute: minute % 60);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Combines a "yyyy-MM-dd" date string with an optional time label (plus an
+/// optional duration) into a single DateTime for comparisons against "now".
+/// If no time is given, or it can't be parsed, returns the very end of that
+/// date (23:59:59) so a same-day item with no specific time is only
+/// considered "over" once the whole day has passed.
+DateTime? _combineDateAndTime(String date, String? timeLabel, {int durationMinutes = 0}) {
+  final base = DateTime.tryParse(date);
+  if (base == null) return null;
+
+  if (timeLabel == null || timeLabel.trim().isEmpty) {
+    return DateTime(base.year, base.month, base.day, 23, 59, 59);
+  }
+
+  final parsedTime = _parseFlexibleTimeLabel(timeLabel);
+  if (parsedTime == null) {
+    return DateTime(base.year, base.month, base.day, 23, 59, 59);
+  }
+
+  final start = DateTime(base.year, base.month, base.day, parsedTime.hour, parsedTime.minute);
+  return start.add(Duration(minutes: durationMinutes));
+}
+
+/// Formats an assigned start time ("HH:MM") and duration (minutes) into a
+/// display range like "10:00 - 11:00". Falls back to the raw assignedTime
+/// string if it can't be parsed, and returns null if no time is assigned.
+String? _formatTimeRange(String? assignedTime, int? durationMinutes) {
+  if (assignedTime == null || assignedTime.isEmpty) return null;
+
+  final parts = assignedTime.split(':');
+  final startHour = parts.isNotEmpty ? int.tryParse(parts[0]) : null;
+  final startMinute = parts.length > 1 ? int.tryParse(parts[1]) : 0;
+  if (startHour == null) return assignedTime; // Unrecognized format - show as-is.
+
+  final duration = durationMinutes ?? 60; // Fall back to a 1-hour block if unknown.
+  final startTotalMinutes = startHour * 60 + (startMinute ?? 0);
+  final endTotalMinutes = startTotalMinutes + duration;
+
+  String fmt(int totalMinutes) {
+    final h = (totalMinutes ~/ 60) % 24;
+    final m = totalMinutes % 60;
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+  }
+
+  return '${fmt(startTotalMinutes)} - ${fmt(endTotalMinutes)}';
+}
+
+class _StatusDisplay {
+  final String label;
+  final Color color;
+  const _StatusDisplay(this.label, this.color);
+}
+
+/// Maps a raw status + the item's end date/time into what's actually shown:
+/// - Accepted, but the date/time has passed -> "ENDED"
+/// - Anything else (e.g. still pending), but the date/time has passed -> "EXPIRED"
+/// - Cancelled / Rejected always show as themselves, regardless of date
+/// - Otherwise, the raw status is shown as-is (e.g. "PENDING", "ACCEPTED")
+_StatusDisplay _resolveStatusDisplay(String rawStatus, DateTime? endDateTime) {
+  final status = rawStatus.toLowerCase();
+  final hasEnded = endDateTime != null && endDateTime.isBefore(DateTime.now());
+
+  if (status == 'cancelled') {
+    return const _StatusDisplay('CANCELLED', Colors.grey);
+  }
+  if (status == 'rejected') {
+    return const _StatusDisplay('REJECTED', Colors.red);
+  }
+  if (status == 'accepted') {
+    return hasEnded
+        ? const _StatusDisplay('ENDED', Colors.grey)
+        : const _StatusDisplay('ACCEPTED', Colors.green);
+  }
+  return hasEnded
+      ? const _StatusDisplay('EXPIRED', Colors.grey)
+      : _StatusDisplay(rawStatus.toUpperCase(), Colors.orange);
+}
+
+/// Whether a booking/reservation can still be cancelled by the student -
+/// only while its displayed status is still (raw) pending or accepted.
+bool _isCancellable(String rawStatus, DateTime? endDateTime) {
+  final display = _resolveStatusDisplay(rawStatus, endDateTime).label;
+  return display == 'ACCEPTED' || display == rawStatus.toUpperCase();
+}
+
 class StudentWorkshopListView extends StatefulWidget {
   final String username;
   const StudentWorkshopListView({super.key, required this.username});
@@ -218,12 +325,15 @@ class _StudentWorkshopListViewState extends State<StudentWorkshopListView> {
         }
 
         final now = DateTime.now();
-        final today = DateTime(now.year, now.month, now.day);
 
-        // Filter out events that are before today
+        // Filter out events whose date+time has already started/passed, not
+        // just events before today - a workshop earlier today should also
+        // disappear once its start time is behind us.
         final events = snapshot.data!.where((event) {
-          final eventDate = DateTime.tryParse(event.date) ?? today;
-          return eventDate.isAfter(today.subtract(const Duration(days: 1)));
+          final eventDateTime = _combineDateAndTime(event.date, event.time) ??
+              DateTime.tryParse(event.date) ??
+              now;
+          return eventDateTime.isAfter(now);
         }).toList();
 
         // Check again after filtering
@@ -306,35 +416,6 @@ class StudentBookingTab extends StatefulWidget {
 
 class _StudentBookingTabState extends State<StudentBookingTab> {
   int _refreshKey = 0;
-
-  /// Formats the assigned start time ("HH:MM", e.g. "09:00") and duration
-  /// (minutes) into a display range like "10:00 - 11:00". Falls back to the
-  /// raw assignedTime string if it can't be parsed, and returns null if no
-  /// time has been assigned yet.
-  ///
-  /// NOTE: assumes MockInterviewModel exposes a `durationMinutes` (int?)
-  /// field matching the `durationMinutes` column in mock_interviews. If that
-  /// field doesn't exist under this name, this will need a small tweak.
-  String? _formatAssignedTimeRange(String? assignedTime, int? durationMinutes) {
-    if (assignedTime == null || assignedTime.isEmpty) return null;
-
-    final parts = assignedTime.split(':');
-    final startHour = parts.isNotEmpty ? int.tryParse(parts[0]) : null;
-    final startMinute = parts.length > 1 ? int.tryParse(parts[1]) : 0;
-    if (startHour == null) return assignedTime; // Unrecognized format — show as-is.
-
-    final duration = durationMinutes ?? 60; // Fall back to a 1-hour block if unknown.
-    final startTotalMinutes = startHour * 60 + (startMinute ?? 0);
-    final endTotalMinutes = startTotalMinutes + duration;
-
-    String fmt(int totalMinutes) {
-      final h = (totalMinutes ~/ 60) % 24;
-      final m = totalMinutes % 60;
-      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
-    }
-
-    return '${fmt(startTotalMinutes)} - ${fmt(endTotalMinutes)}';
-  }
 
   void _showNewRequestDialog(BuildContext context) {
     String selectedType = 'Mock Interview';
@@ -593,14 +674,6 @@ class _StudentBookingTabState extends State<StudentBookingTab> {
     );
   }
 
-  Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'accepted': return Colors.green;
-      case 'rejected': return Colors.red;
-      default: return Colors.orange;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     // We use a Scaffold inside the tab to easily anchor the FloatingActionButton to the bottom right
@@ -645,120 +718,231 @@ class _StudentBookingTabState extends State<StudentBookingTab> {
             itemCount: requests.length,
             itemBuilder: (context, index) {
               final req = requests[index];
-
-              // Determine status color for student view
-              Color statusColor;
-              if (req.status.toLowerCase() == 'accepted') {
-                statusColor = Colors.green;
-              } else if (req.status.toLowerCase() == 'rejected') {
-                statusColor = Colors.red;
-              } else {
-                statusColor = Colors.orange;
-              }
-
-              return Card(
-                margin: const EdgeInsets.symmetric(vertical: 8),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            req.requestType,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: statusColor.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: statusColor.withOpacity(0.5)),
-                            ),
-                            child: Text(
-                              req.status.toUpperCase(),
-                              style: TextStyle(color: statusColor, fontSize: 12, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 24),
-                      Row(
-                        children: [
-                          const Icon(Icons.location_on, size: 16, color: Colors.grey),
-                          const SizedBox(width: 8),
-                          Text('Location: ${req.preferredLocation ?? "N/A"}'),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-                          const SizedBox(width: 8),
-                          Text(req.date),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Icon(Icons.access_time, size: 16, color: Colors.grey),
-                          const SizedBox(width: 8),
-                          Text(
-                            _formatAssignedTimeRange(req.assignedTime, req.durationMinutes) ??
-                                'Time TBD',
-                          ),
-                        ],
-                      ),
-                      if (req.advisor != null && req.advisor!.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Icon(Icons.person, size: 16, color: Colors.grey),
-                            const SizedBox(width: 8),
-                            Text('Advisor: ${req.advisor}'),
-                          ],
-                        ),
-                      ],
-                      if (req.venue != null && req.venue!.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Icon(Icons.meeting_room, size: 16, color: Colors.green),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                  'Assigned Venue: ${req.venue}',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                      if (req.notes != null && req.notes!.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            'Notes: ${req.notes}',
-                            style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
-                          ),
-                        ),
-                      ]
-                    ],
-                  ),
-                ),
+              return _MockInterviewCard(
+                key: ValueKey(req.id),
+                request: req,
+                onCancelled: () => setState(() => _refreshKey++),
               );
             },
           );
         },
+      ),
+    );
+  }
+}
+
+// A mock-interview/advisory request card that slides left on tap to reveal a
+// "Cancel" button behind it, mirroring the feedback-list reveal pattern.
+// Only cancellable (still pending/accepted, not yet ended) requests get the
+// slide affordance; anything ended/expired/rejected/cancelled renders as a
+// plain static card.
+class _MockInterviewCard extends StatefulWidget {
+  final MockInterviewModel request;
+  final VoidCallback onCancelled;
+
+  const _MockInterviewCard({
+    super.key,
+    required this.request,
+    required this.onCancelled,
+  });
+
+  @override
+  State<_MockInterviewCard> createState() => _MockInterviewCardState();
+}
+
+class _MockInterviewCardState extends State<_MockInterviewCard> {
+  bool _isRevealed = false;
+  static const double _revealWidth = 100;
+
+  void _confirmCancel(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel Reservation'),
+        content: const Text('Are you sure you want to cancel this reservation? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Keep it'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              if (widget.request.id != null) {
+                await DatabaseService().cancelMockInterview(widget.request.id!);
+                widget.onCancelled();
+              }
+            },
+            child: const Text('Cancel Reservation', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final req = widget.request;
+    final endDateTime = _combineDateAndTime(req.date, req.assignedTime, durationMinutes: req.durationMinutes ?? 0);
+    final statusDisplay = _resolveStatusDisplay(req.status, endDateTime);
+    final canCancel = _isCancellable(req.status, endDateTime);
+
+    final card = Card(
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  req.requestType,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: statusDisplay.color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: statusDisplay.color.withOpacity(0.5)),
+                  ),
+                  child: Text(
+                    statusDisplay.label,
+                    style: TextStyle(color: statusDisplay.color, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 24),
+            Row(
+              children: [
+                const Icon(Icons.location_on, size: 16, color: Colors.grey),
+                const SizedBox(width: 8),
+                Text('Location: ${req.preferredLocation ?? "N/A"}'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                const SizedBox(width: 8),
+                Text(req.date),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.access_time, size: 16, color: Colors.grey),
+                const SizedBox(width: 8),
+                Text(_formatTimeRange(req.assignedTime, req.durationMinutes) ?? 'Time TBD'),
+              ],
+            ),
+            if (req.advisor != null && req.advisor!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.person, size: 16, color: Colors.grey),
+                  const SizedBox(width: 8),
+                  Text('Advisor: ${req.advisor}'),
+                ],
+              ),
+            ],
+            if (req.venue != null && req.venue!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.meeting_room, size: 16, color: Colors.green),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                        'Assigned Venue: ${req.venue}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            if (req.notes != null && req.notes!.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Notes: ${req.notes}',
+                  style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                ),
+              ),
+            ],
+            if (canCancel) ...[
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  '← Tap to cancel',
+                  style: TextStyle(color: Colors.grey.shade400, fontSize: 11, fontStyle: FontStyle.italic),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+
+    if (!canCancel) {
+      // Not cancellable (ended/expired/rejected/cancelled already) - plain
+      // static card, no slide/cancel affordance.
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: card,
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Stack(
+        children: [
+          // Cancel button revealed behind the card once slid open.
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Container(
+                width: _revealWidth,
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.event_busy, color: Colors.white),
+                      tooltip: 'Cancel Reservation',
+                      onPressed: () => _confirmCancel(context),
+                    ),
+                    const Text('Cancel', style: TextStyle(color: Colors.white, fontSize: 11)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // Foreground card - slides left on tap to reveal the button above.
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            transform: Matrix4.translationValues(_isRevealed ? -_revealWidth : 0, 0, 0),
+            child: GestureDetector(
+              onTap: () => setState(() => _isRevealed = !_isRevealed),
+              child: card,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -784,14 +968,48 @@ class _StudentBookingStatusViewState extends State<StudentBookingStatusView> {
   String _filterTimeline = 'All';
   String _filterStatus = 'All';
 
-  void _showRegisteredEventDetails(BuildContext context, EventModel event, String status) {
+  void _confirmCancelBooking(BuildContext sheetContext, EventRegistrationModel r) {
+    showDialog(
+      context: sheetContext,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel Booking'),
+        content: const Text('Are you sure you want to cancel this booking? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Keep it'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext); // Close confirm dialog
+              await widget.dbService.updateRegistrationStatus(r.registrationId, r.eventId, 'cancelled');
+              if (mounted) {
+                Navigator.pop(sheetContext); // Close the details bottom sheet
+                setState(() {}); // Refresh the list
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Booking cancelled.')),
+                );
+              }
+            },
+            child: const Text('Cancel Booking', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRegisteredEventDetails(BuildContext context, EventModel event, EventRegistrationModel r) {
+    final eventDateTime = _combineDateAndTime(event.date, event.time);
+    final statusDisplay = _resolveStatusDisplay(r.status, eventDateTime);
+    final canCancel = _isCancellable(r.status, eventDateTime);
+
     showModalBottomSheet(
         context: context,
         isScrollControlled: true,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        builder: (context) {
+        builder: (sheetContext) {
           return Padding(
             padding: const EdgeInsets.all(24.0),
             child: Column(
@@ -842,24 +1060,42 @@ class _StudentBookingStatusViewState extends State<StudentBookingStatusView> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                SizedBox(
+                Container(
                   width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey.shade200,
-                        foregroundColor: Colors.black87,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)
-                        )
-                    ),
-                    onPressed: () => Navigator.pop(context),
-                    child: Text(
-                        'Status: ${status.toUpperCase()}',
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    color: statusDisplay.color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: statusDisplay.color.withOpacity(0.4)),
+                  ),
+                  child: Text(
+                    'Status: ${statusDisplay.label}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: statusDisplay.color),
+                  ),
+                ),
+                if (canCancel) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)
+                          )
+                      ),
+                      onPressed: () => _confirmCancelBooking(sheetContext, r),
+                      icon: const Icon(Icons.event_busy),
+                      label: const Text(
+                          'Cancel Booking',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)
+                      ),
                     ),
                   ),
-                )
+                ],
               ],
             ),
           );
@@ -920,7 +1156,7 @@ class _StudentBookingStatusViewState extends State<StudentBookingStatusView> {
                   const Text('Filter by Status', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   Wrap(
                     spacing: 12,
-                    children: ['All', 'Accepted', 'Pending', 'Rejected'].map((status) {
+                    children: ['All', 'Accepted', 'Pending', 'Rejected', 'Cancelled'].map((status) {
                       return ChoiceChip(
                         label: Text(status),
                         selected: _filterStatus == status,
@@ -1112,17 +1348,8 @@ class _StudentBookingStatusViewState extends State<StudentBookingStatusView> {
                 itemCount: myRegistrations.length,
                 itemBuilder: (context, index) {
                   final r = myRegistrations[index];
-                  Color statusColor;
-                  switch (r.status.toLowerCase()) {
-                    case 'accepted':
-                      statusColor = Colors.green;
-                      break;
-                    case 'rejected':
-                      statusColor = Colors.red;
-                      break;
-                    default:
-                      statusColor = Colors.orange;
-                  }
+                  final eventDateTime = _combineDateAndTime(r.date, r.time);
+                  final statusDisplay = _resolveStatusDisplay(r.status, eventDateTime);
 
                   return Card(
                     margin: const EdgeInsets.symmetric(vertical: 6),
@@ -1135,7 +1362,7 @@ class _StudentBookingStatusViewState extends State<StudentBookingStatusView> {
 
                         if (mounted) {
                           if (event != null) {
-                            _showRegisteredEventDetails(context, event, r.status);
+                            _showRegisteredEventDetails(context, event, r);
                           } else {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
@@ -1163,14 +1390,14 @@ class _StudentBookingStatusViewState extends State<StudentBookingStatusView> {
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                   decoration: BoxDecoration(
-                                    color: statusColor.withOpacity(0.1),
-                                    border: Border.all(color: statusColor.withOpacity(0.5)),
+                                    color: statusDisplay.color.withOpacity(0.1),
+                                    border: Border.all(color: statusDisplay.color.withOpacity(0.5)),
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
-                                    r.status.toUpperCase(),
+                                    statusDisplay.label,
                                     style: TextStyle(
-                                      color: statusColor,
+                                      color: statusDisplay.color,
                                       fontSize: 12,
                                       fontWeight: FontWeight.bold,
                                     ),

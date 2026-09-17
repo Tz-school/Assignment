@@ -433,6 +433,11 @@ class DatabaseService {
     return await db.insert('mock_interviews', request.toMap());
   }
 
+  Future<int> cancelMockInterview(int id) async {
+    final db = await database;
+    return await db.update('mock_interviews', {'status': 'Cancelled'}, where: 'id = ?', whereArgs: [id]);
+  }
+
   Future<List<MockInterviewModel>> getStudentMockInterviews(
     String username,
   ) async {

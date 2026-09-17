@@ -395,9 +395,7 @@ class _JobSeekerTabState extends State<JobSeekerTab> {
   }
 }
 
-// =====================================================
-// HIRING POSTER DETAIL PAGE
-// =====================================================
+
 
 class HiringPosterDetailPage extends StatelessWidget {
   final HiringPoster poster;
@@ -578,7 +576,7 @@ class HiringPosterDetailPage extends StatelessWidget {
             ),
             const SizedBox(height: 30),
 
-            // Apply button
+
             SizedBox(
               width: double.infinity,
               height: 52,
@@ -611,9 +609,7 @@ class HiringPosterDetailPage extends StatelessWidget {
   }
 }
 
-// =====================================================
-// SELECT RESUME PAGE
-// =====================================================
+
 
 class SelectResumePage extends StatefulWidget {
   final HiringPoster poster;
@@ -671,9 +667,6 @@ class _SelectResumePageState extends State<SelectResumePage> {
     }
   }
 
-  // ===================================================
-  // OPEN FULL RESUME REVIEW
-  // ===================================================
 
   Future<void> _reviewResume() async {
     if (_selectedResume == null) {
@@ -697,19 +690,42 @@ class _SelectResumePageState extends State<SelectResumePage> {
       ),
     );
 
-    // Only submit after the user confirms
+
     if (confirmed == true) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Application submitted successfully!',
+      if (_selectedResume?.id == null || widget.poster.id == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to submit application. Missing ID.'),
           ),
-        ),
-      );
+        );
+        return;
+      }
 
-      Navigator.pop(context);
+      try {
+        await _databaseService.submitApplication(
+          resumeId: _selectedResume!.id!,
+          hiringPosterId: widget.poster.id!,
+          studentUsername: _selectedResume!.fullName,
+        );
+
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Application submitted successfully!'),
+          ),
+        );
+
+        Navigator.pop(context);
+      } catch (e) {
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to submit application: $e'),
+          ),
+        );
+      }
     }
   }
 
@@ -894,9 +910,7 @@ class _SelectResumePageState extends State<SelectResumePage> {
   }
 }
 
-// =====================================================
-// FULL RESUME REVIEW PAGE
-// =====================================================
+
 
 class ResumeReviewPage extends StatelessWidget {
   final ResumeData resume;
@@ -970,7 +984,7 @@ class ResumeReviewPage extends StatelessWidget {
 
       body: Column(
         children: [
-          // Warning / reminder
+
           Container(
             width: double.infinity,
             margin: const EdgeInsets.fromLTRB(
@@ -1024,7 +1038,7 @@ class ResumeReviewPage extends StatelessWidget {
                     crossAxisAlignment:
                     CrossAxisAlignment.start,
                     children: [
-                      // Resume heading
+
                       Center(
                         child: Column(
                           children: [
@@ -1060,7 +1074,7 @@ class ResumeReviewPage extends StatelessWidget {
                         height: 35,
                       ),
 
-                      // Personal information
+
                       _sectionTitle(
                         'Personal Information',
                       ),
@@ -1080,7 +1094,7 @@ class ResumeReviewPage extends StatelessWidget {
                         resume.gender,
                       ),
 
-                      // Contact information
+
                       _sectionTitle(
                         'Contact Information',
                       ),
@@ -1100,7 +1114,7 @@ class ResumeReviewPage extends StatelessWidget {
                         resume.address,
                       ),
 
-                      // Summary
+
                       _sectionTitle(
                         'Professional Summary',
                       ),
@@ -1110,7 +1124,7 @@ class ResumeReviewPage extends StatelessWidget {
                         resume.summary,
                       ),
 
-                      // Experience
+
                       _sectionTitle(
                         'Work Experience',
                       ),
@@ -1120,7 +1134,7 @@ class ResumeReviewPage extends StatelessWidget {
                         resume.experience,
                       ),
 
-                      // Education
+
                       _sectionTitle(
                         'Education',
                       ),
@@ -1136,7 +1150,6 @@ class ResumeReviewPage extends StatelessWidget {
 
                       const SizedBox(height: 10),
 
-                      // Job information
                       _sectionTitle(
                         'Application',
                       ),
@@ -1198,7 +1211,6 @@ class ResumeReviewPage extends StatelessWidget {
             ),
           ),
 
-          // Bottom buttons
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(16),

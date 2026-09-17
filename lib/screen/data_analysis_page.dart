@@ -31,6 +31,8 @@ class _DataAnalysisPageState extends State<DataAnalysisPage> {
 
   bool _showAllStates = false;
 
+  String _selectedGdpState = 'Selangor';
+
   List<ComparisonModel> _list = [];
   bool _isLoadingSaved = false;
   final TextEditingController _searchController = TextEditingController();
@@ -441,7 +443,7 @@ class _DataAnalysisPageState extends State<DataAnalysisPage> {
       length: 4,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Wage Analysis'),
+          title: const Text('Data Analysis'),
           bottom: const TabBar(
             isScrollable: true,
             tabAlignment: TabAlignment.start,
@@ -638,46 +640,153 @@ class _DataAnalysisPageState extends State<DataAnalysisPage> {
     final stateList = _stateData.keys.toList()
       ..sort((a, b) => _stateData[b]!['gdpPct']!.compareTo(_stateData[a]!['gdpPct']!));
 
+    final selectedData = _stateData[_selectedGdpState]!;
+    final selectedCluster = _stateClusters[_selectedGdpState] ?? 'General industries';
+    final double median = selectedData['median']!;
+    final double livingCost = selectedData['livingCost']!;
+    final double netDisposable = median - livingCost;
+
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: [
+        const Text(
+          'Explore GDP Contribution',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Tap a state to compare its economic profile.',
+          style: TextStyle(fontSize: 11, color: Colors.grey),
+        ),
+        const SizedBox(height: 8),
         Card(
+          elevation: 2,
           color: Colors.indigo.shade50,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: const ListTile(
-            leading: Icon(Icons.factory_outlined, color: Colors.indigo),
-            title: Text('GDP by State', style: TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text('Percentage share of national GDP by state (2025).'),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.indigo.shade200, width: 1.5),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      _selectedGdpState,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.indigo),
+                    ),
+                    Chip(
+                      label: Text('${(selectedData['gdpPct']! * 100).toStringAsFixed(1)}% GDP'),
+                      backgroundColor: Colors.indigo.shade100,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ],
+                ),
+                const Divider(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Median Wage:'),
+                    Text('RM ${median.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Living Cost:'),
+                    Text('RM ${livingCost.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Estimated Disposable:'),
+                    Text(
+                      'RM ${netDisposable.toStringAsFixed(0)}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: netDisposable >= 0 ? Colors.green.shade800 : Colors.red.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(height: 16),
+                Row(
+                  children: [
+                    const Icon(Icons.business_center, size: 16, color: Colors.indigo),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Focus: $selectedCluster',
+                        style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 16),
-        const Text('GDP Contribution', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const Text('GDP Contribution Bars', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         ...stateList.map((st) {
           final double gdpPct = _stateData[st]!['gdpPct']!;
-          final String cluster = _stateClusters[st] ?? 'General industries';
-          return Card(
-            margin: const EdgeInsets.symmetric(vertical: 6),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            child: Padding(
-              padding: const EdgeInsets.all(12.0),
+          final bool isSelected = _selectedGdpState == st;
+          final double barValue = (gdpPct / 0.265).clamp(0.05, 1.0);
+
+          return InkWell(
+            onTap: () => setState(() => _selectedGdpState = st),
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isSelected ? Colors.indigo.shade100.withOpacity(0.6) : Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isSelected ? Colors.indigo : Colors.grey.shade300,
+                  width: isSelected ? 1.5 : 1,
+                ),
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(st, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                      Text('${(gdpPct * 100).toStringAsFixed(1)}% of GDP', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+                      Text(
+                        st,
+                        style: TextStyle(
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          fontSize: 13,
+                        ),
+                      ),
+                      Text(
+                        '${(gdpPct * 100).toStringAsFixed(1)}%',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: isSelected ? Colors.indigo.shade900 : Colors.grey.shade700,
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Text('Focus: $cluster', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-                  const SizedBox(height: 8),
-                  LinearProgressIndicator(
-                    value: (gdpPct / 0.27).clamp(0.0, 1.0),
-                    minHeight: 6,
-                    borderRadius: BorderRadius.circular(3),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: barValue,
+                      minHeight: 8,
+                      backgroundColor: Colors.grey.shade200,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        isSelected ? Colors.indigo : Colors.indigo.shade300,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -776,7 +885,7 @@ class _DataAnalysisPageState extends State<DataAnalysisPage> {
                       items: const [
                         DropdownMenuItem(value: 10.0, child: Text('10% Savings Target')),
                         DropdownMenuItem(value: 20.0, child: Text('20% Savings Target')),
-                        DropdownMenuItem(value: 30.0, child: Text('30% Savings Target (Recommended)')),
+                        DropdownMenuItem(value: 30.0, child: Text('30% Savings Target')),
                         DropdownMenuItem(value: 40.0, child: Text('40% High Savings Target')),
                       ],
                       onChanged: (val) {

@@ -4,7 +4,7 @@ import '../model/resume_model.dart';
 class SupabaseService {
   final SupabaseClient _supabase = Supabase.instance.client;
 
-  // 1. Save Address to Supabase 'user_addresses' table
+
   Future<void> saveAddress({
     required String userId,
     required String address,

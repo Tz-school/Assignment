@@ -441,7 +441,7 @@ class _DataAnalysisPageState extends State<DataAnalysisPage> {
       length: 4,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Wage Analysis'),
+          title: const Text('Data Analysis'),
           bottom: const TabBar(
             isScrollable: true,
             tabAlignment: TabAlignment.start,
@@ -776,7 +776,7 @@ class _DataAnalysisPageState extends State<DataAnalysisPage> {
                       items: const [
                         DropdownMenuItem(value: 10.0, child: Text('10% Savings Target')),
                         DropdownMenuItem(value: 20.0, child: Text('20% Savings Target')),
-                        DropdownMenuItem(value: 30.0, child: Text('30% Savings Target (Recommended)')),
+                        DropdownMenuItem(value: 30.0, child: Text('30% Savings Target')),
                         DropdownMenuItem(value: 40.0, child: Text('40% High Savings Target')),
                       ],
                       onChanged: (val) {

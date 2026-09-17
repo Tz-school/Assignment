@@ -67,6 +67,25 @@ final RegExp _emailRegex = RegExp(r'^[\w\.\-]+@([\w\-]+\.)+[A-Za-z]{2,}$');
 // mobile/landline numbers with or without the country code.
 final RegExp _phoneRegex = RegExp(r'^\+?[0-9]{9,11}$');
 
+String? _validatePassword(String password) {
+  if (password.length < 8) {
+    return 'Password must be at least 8 characters long.';
+  }
+  if (!password.contains(RegExp(r'[A-Z]'))) {
+    return 'Password must contain at least one uppercase letter.';
+  }
+  if (!password.contains(RegExp(r'[a-z]'))) {
+    return 'Password must contain at least one lowercase letter.';
+  }
+  if (!password.contains(RegExp(r'[0-9]'))) {
+    return 'Password must contain at least one number.';
+  }
+  if (!password.contains(RegExp(r'[!@#\$%^&*(),.?":{}|<>]'))) {
+    return 'Password must contain at least one special character.';
+  }
+  return null;
+}
+
 class EditProfileScreen extends StatefulWidget {
   final String username;
   const EditProfileScreen({super.key, required this.username});
@@ -85,8 +104,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _phoneController = TextEditingController();
   String? _selectedState;
   bool _isDetectingState = false;
-  String? _stateDetectionMessage; // inline feedback shown under the dropdown
-  String? _photoPath; // local file path of the profile photo, if any
+  String? _stateDetectionMessage;
+  String? _photoPath;
   bool _isLoading = true;
   bool _isSaving = false;
 
@@ -315,8 +334,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       setDialogState(() => errorText = 'Please fill in all fields.');
                       return;
                     }
-                    if (newPass.length < 4) {
-                      setDialogState(() => errorText = 'New password must be at least 4 characters.');
+                    final passwordError = _validatePassword(newPass);
+                    if (passwordError != null) {
+                      setDialogState(() => errorText = passwordError);
                       return;
                     }
                     if (newPass != confirm) {

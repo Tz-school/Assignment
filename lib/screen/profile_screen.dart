@@ -60,6 +60,32 @@ double _distanceInMeters(double lat1, double lon1, double lat2, double lon2) {
 
 double _deg2rad(double deg) => deg * (pi / 180);
 
+// Basic email shape check: something@something.tld
+final RegExp _emailRegex = RegExp(r'^[\w\.\-]+@([\w\-]+\.)+[A-Za-z]{2,}$');
+
+// Digits only (optionally a leading +), 9-11 digits - covers Malaysian
+// mobile/landline numbers with or without the country code.
+final RegExp _phoneRegex = RegExp(r'^\+?[0-9]{9,11}$');
+
+String? _validatePassword(String password) {
+  if (password.length < 8) {
+    return 'Password must be at least 8 characters long.';
+  }
+  if (!password.contains(RegExp(r'[A-Z]'))) {
+    return 'Password must contain at least one uppercase letter.';
+  }
+  if (!password.contains(RegExp(r'[a-z]'))) {
+    return 'Password must contain at least one lowercase letter.';
+  }
+  if (!password.contains(RegExp(r'[0-9]'))) {
+    return 'Password must contain at least one number.';
+  }
+  if (!password.contains(RegExp(r'[!@#\$%^&*(),.?":{}|<>]'))) {
+    return 'Password must contain at least one special character.';
+  }
+  return null;
+}
+
 class EditProfileScreen extends StatefulWidget {
   final String username;
   const EditProfileScreen({super.key, required this.username});
@@ -69,6 +95,8 @@ class EditProfileScreen extends StatefulWidget {
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
+  final _formKey = GlobalKey<FormState>();
+
   late final TextEditingController _nameController =
   TextEditingController(text: widget.username);
   final _fullNameController = TextEditingController();
@@ -76,8 +104,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _phoneController = TextEditingController();
   String? _selectedState;
   bool _isDetectingState = false;
-  String? _stateDetectionMessage; // inline feedback shown under the dropdown
-  String? _photoPath; // local file path of the profile photo, if any
+  String? _stateDetectionMessage;
+  String? _photoPath;
   bool _isLoading = true;
   bool _isSaving = false;
 
@@ -197,6 +225,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _saveChanges() async {
+    // Validate email/contact number format first. If either is invalid,
+    // the Form shows inline errors under the fields and saving halts here.
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
     setState(() => _isSaving = true);
 
     await DatabaseService().updateUserProfile(
@@ -300,8 +334,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       setDialogState(() => errorText = 'Please fill in all fields.');
                       return;
                     }
-                    if (newPass.length < 4) {
-                      setDialogState(() => errorText = 'New password must be at least 4 characters.');
+                    final passwordError = _validatePassword(newPass);
+                    if (passwordError != null) {
+                      setDialogState(() => errorText = passwordError);
                       return;
                     }
                     if (newPass != confirm) {
@@ -370,234 +405,181 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       appBar: AppBar(title: const Text('Edit Profile')),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
-        child: ListView(
-          children: [
-            Center(
-              child: Stack(
-                children: [
-                  CircleAvatar(
-                    radius: 48,
-                    backgroundColor: Colors.indigo,
-                    backgroundImage: _photoPath != null ? FileImage(File(_photoPath!)) : null,
-                    child: _photoPath == null
-                        ? const Icon(Icons.person, size: 48, color: Colors.white)
-                        : null,
-                  ),
-                  Positioned(
-                    bottom: 0,
-                    right: 0,
-                    child: GestureDetector(
-                      onTap: _pickPhoto,
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: const BoxDecoration(
-                          color: Colors.indigo,
-                          shape: BoxShape.circle,
+        child: Form(
+          key: _formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          child: ListView(
+            children: [
+              Center(
+                child: Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 48,
+                      backgroundColor: Colors.indigo,
+                      backgroundImage: _photoPath != null ? FileImage(File(_photoPath!)) : null,
+                      child: _photoPath == null
+                          ? const Icon(Icons.person, size: 48, color: Colors.white)
+                          : null,
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: GestureDetector(
+                        onTap: _pickPhoto,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: const BoxDecoration(
+                            color: Colors.indigo,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.camera_alt, size: 18, color: Colors.white),
                         ),
-                        child: const Icon(Icons.camera_alt, size: 18, color: Colors.white),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            Center(
-              child: TextButton.icon(
-                onPressed: _pickPhoto,
-                icon: const Icon(Icons.camera_alt, size: 18),
-                label: const Text('Change Photo'),
-              ),
-            ),
-            const SizedBox(height: 24),
-            TextField(
-              controller: _nameController,
-              enabled: false, // Username is the login identifier - keep it read-only here
-              decoration: const InputDecoration(
-                labelText: 'Username',
-                prefixIcon: Icon(Icons.person),
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _fullNameController,
-              decoration: const InputDecoration(
-                labelText: 'Name',
-                prefixIcon: Icon(Icons.badge_outlined),
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(
-                labelText: 'Email',
-                prefixIcon: Icon(Icons.email),
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _phoneController,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'Contact Number',
-                prefixIcon: Icon(Icons.phone),
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: _selectedState,
-              decoration: InputDecoration(
-                labelText: 'State',
-                prefixIcon: const Icon(Icons.map),
-                border: const OutlineInputBorder(),
-                suffixIcon: _isDetectingState
-                    ? const Padding(
-                  padding: EdgeInsets.all(14.0),
-                  child: SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                )
-                    : null,
-              ),
-              items: [
-                const DropdownMenuItem(
-                  value: kSelectByLocationOption,
-                  child: Text(
-                    kSelectByLocationOption,
-                    style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold),
-                  ),
+                  ],
                 ),
-                ...kMalaysianStates.map((s) => DropdownMenuItem(value: s, child: Text(s))),
-              ],
-              onChanged: _isDetectingState
-                  ? null
-                  : (val) {
-                if (val == kSelectByLocationOption) {
-                  // Don't select the sentinel itself - detect instead.
-                  _selectStateByLocation();
-                } else {
-                  setState(() {
-                    _selectedState = val;
-                    _stateDetectionMessage = null;
-                  });
-                }
-              },
-            ),
-            if (_stateDetectionMessage != null) ...[
+              ),
               const SizedBox(height: 8),
-              Text(
-                _stateDetectionMessage!,
-                style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+              Center(
+                child: TextButton.icon(
+                  onPressed: _pickPhoto,
+                  icon: const Icon(Icons.camera_alt, size: 18),
+                  label: const Text('Change Photo'),
+                ),
+              ),
+              const SizedBox(height: 24),
+              TextField(
+                controller: _nameController,
+                enabled: false, // Username is the login identifier - keep it read-only here
+                decoration: const InputDecoration(
+                  labelText: 'Username',
+                  prefixIcon: Icon(Icons.person),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _fullNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Name',
+                  prefixIcon: Icon(Icons.badge_outlined),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  prefixIcon: Icon(Icons.email),
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  final trimmed = value?.trim() ?? '';
+                  if (trimmed.isEmpty) return null; // Email is optional
+                  if (!_emailRegex.hasMatch(trimmed)) {
+                    return 'Enter a valid email address.';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _phoneController,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  labelText: 'Contact Number',
+                  prefixIcon: Icon(Icons.phone),
+                  border: OutlineInputBorder(),
+                  hintText: 'e.g. 0123456789',
+                ),
+                validator: (value) {
+                  final trimmed = value?.trim().replaceAll(' ', '') ?? '';
+                  if (trimmed.isEmpty) return null; // Contact number is optional
+                  if (!_phoneRegex.hasMatch(trimmed)) {
+                    return 'Enter a valid contact number (9-11 digits).';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: _selectedState,
+                decoration: InputDecoration(
+                  labelText: 'State',
+                  prefixIcon: const Icon(Icons.map),
+                  border: const OutlineInputBorder(),
+                  suffixIcon: _isDetectingState
+                      ? const Padding(
+                    padding: EdgeInsets.all(14.0),
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                      : null,
+                ),
+                items: [
+                  const DropdownMenuItem(
+                    value: kSelectByLocationOption,
+                    child: Text(
+                      kSelectByLocationOption,
+                      style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  ...kMalaysianStates.map((s) => DropdownMenuItem(value: s, child: Text(s))),
+                ],
+                onChanged: _isDetectingState
+                    ? null
+                    : (val) {
+                  if (val == kSelectByLocationOption) {
+                    // Don't select the sentinel itself - detect instead.
+                    _selectStateByLocation();
+                  } else {
+                    setState(() {
+                      _selectedState = val;
+                      _stateDetectionMessage = null;
+                    });
+                  }
+                },
+              ),
+              if (_stateDetectionMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _stateDetectionMessage!,
+                  style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                ),
+              ],
+              const SizedBox(height: 24),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.indigo,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: _isSaving ? null : _saveChanges,
+                child: _isSaving
+                    ? const SizedBox(
+                  width: 20, height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+                    : const Text('Save Changes'),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _showResetPasswordDialog,
+                icon: const Icon(Icons.lock_reset),
+                label: const Text('Reset Password'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  side: const BorderSide(color: Colors.indigo),
+                  foregroundColor: Colors.indigo,
+                ),
               ),
             ],
-            const SizedBox(height: 24),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.indigo,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              onPressed: _isSaving ? null : _saveChanges,
-              child: _isSaving
-                  ? const SizedBox(
-                width: 20, height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-              )
-                  : const Text('Save Changes'),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _showResetPasswordDialog,
-              icon: const Icon(Icons.lock_reset),
-              label: const Text('Reset Password'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                side: const BorderSide(color: Colors.indigo),
-                foregroundColor: Colors.indigo,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ==========================================
-// SUBMIT FEEDBACK SCREEN
-// ==========================================
-class FeedbackScreen extends StatefulWidget {
-  const FeedbackScreen({super.key});
-
-  @override
-  State<FeedbackScreen> createState() => _FeedbackScreenState();
-}
-
-class _FeedbackScreenState extends State<FeedbackScreen> {
-  final _feedbackController = TextEditingController();
-  double _rating = 3;
-
-  @override
-  void dispose() {
-    _feedbackController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Submit Feedback')),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'How would you rate your experience?',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            Slider(
-              value: _rating,
-              min: 1,
-              max: 5,
-              divisions: 4,
-              label: _rating.round().toString(),
-              onChanged: (value) => setState(() => _rating = value),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _feedbackController,
-              maxLines: 5,
-              decoration: const InputDecoration(
-                labelText: 'Your feedback',
-                hintText: 'Tell us what you think...',
-                border: OutlineInputBorder(),
-                alignLabelWithHint: true,
-              ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.indigo,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Thanks for your feedback!')),
-                );
-                Navigator.pop(context);
-              },
-              child: const Text('Submit'),
-            ),
-          ],
+          ),
         ),
       ),
     );

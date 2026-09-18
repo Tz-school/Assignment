@@ -1,12 +1,11 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import '../model/industry_partner_model.dart';
 import '../service/database_service.dart';
 import 'main_navigation_screen.dart';
+import 'location_picker_screen.dart';
+import '../service/supabase_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -25,12 +24,12 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _contactController = TextEditingController();
   final _locationController = TextEditingController();
+  final _stateController = TextEditingController();
 
   bool _isRegistering = false;
-  String _selectedRole = 'student'; // 'student' or 'industry'
+  String _selectedRole = 'student';
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
-  bool _isFetchingLocation = false;
   File? _companyPhoto;
 
   final ImagePicker _picker = ImagePicker();
@@ -44,10 +43,11 @@ class _LoginScreenState extends State<LoginScreen> {
     _emailController.dispose();
     _contactController.dispose();
     _locationController.dispose();
+    _stateController.dispose();
     super.dispose();
   }
 
-  // Validates digits typed after +60 (8 to 10 digits starting with 1-9)
+
   bool _validateMalaysiaPhone(String phone) {
     final cleanPhone = phone.replaceAll(RegExp(r'[\s-]'), '');
     final phoneRegExp = RegExp(r'^[1-9][0-9]{7,9}$');
@@ -63,47 +63,56 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _generateLocation() async {
-    setState(() => _isFetchingLocation = true);
+  Future<void> _pickLocation() async {
+    final SelectedLocation? result =
+    await Navigator.push<SelectedLocation>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const LocationPickerScreen(),
+      ),
+    );
+
+    if (result == null) return;
+
+    setState(() {
+      _locationController.text = result.address;
+      _stateController.text = result.state;
+    });
+
     try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        throw 'Location permissions are permanently denied.';
-      }
-
-      Position position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      await SupabaseService().saveAddress(
+        userId: _usernameController.text.trim(),
+        address: result.address,
+        latitude: result.latitude,
+        longitude: result.longitude,
       );
 
-      final url = Uri.parse(
-        'https://nominatim.openstreetmap.org/reverse?format=json&lat=${position.latitude}&lon=${position.longitude}',
-      );
-      final response = await http.get(url, headers: {'User-Agent': 'FlutterApp'});
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final address = data['display_name'] ?? '${position.latitude}, ${position.longitude}';
-        setState(() {
-          _locationController.text = address;
-        });
-      } else {
-        setState(() {
-          _locationController.text = '${position.latitude}, ${position.longitude}';
-        });
-      }
+      debugPrint('Industry location saved!');
+      debugPrint('Address: ${result.address}');
+      debugPrint('Latitude: ${result.latitude}');
+      debugPrint('Longitude: ${result.longitude}');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to get location: $e')),
-        );
-      }
-    } finally {
-      setState(() => _isFetchingLocation = false);
+      debugPrint('Failed to save industry location: $e');
     }
+  }
+
+  String? _validatePassword(String password) {
+    if (password.length < 8) {
+      return 'Password must be at least 8 characters long.';
+    }
+    if (!password.contains(RegExp(r'[A-Z]'))) {
+      return 'Password must contain at least one uppercase letter.';
+    }
+    if (!password.contains(RegExp(r'[a-z]'))) {
+      return 'Password must contain at least one lowercase letter.';
+    }
+    if (!password.contains(RegExp(r'[0-9]'))) {
+      return 'Password must contain at least one number.';
+    }
+    if (!password.contains(RegExp(r'[!@#\$%^&*(),.?":{}|<>]'))) {
+      return 'Password must contain at least one special character.';
+    }
+    return null;
   }
 
   void _submitForm() async {
@@ -115,6 +124,17 @@ class _LoginScreenState extends State<LoginScreen> {
         const SnackBar(content: Text('Please fill in all required fields')),
       );
       return;
+    }
+
+    if (_isRegistering) {
+      final passwordError = _validatePassword(password);
+
+      if (passwordError != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(passwordError)),
+        );
+        return;
+      }
     }
 
     if (_isRegistering) {
@@ -133,7 +153,8 @@ class _LoginScreenState extends State<LoginScreen> {
         if (_companyNameController.text.trim().isEmpty ||
             _emailController.text.trim().isEmpty ||
             rawContact.isEmpty ||
-            _locationController.text.trim().isEmpty) {
+            _locationController.text.trim().isEmpty ||
+            _stateController.text.trim().isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Please fill in all industry partner fields')),
           );
@@ -166,6 +187,7 @@ class _LoginScreenState extends State<LoginScreen> {
             email: _emailController.text.trim(),
             contactNumber: fullContactNumber,
             location: _locationController.text.trim(),
+            state: _stateController.text.trim(),
             photoPath: _companyPhoto!.path,
           );
 
@@ -181,8 +203,15 @@ class _LoginScreenState extends State<LoginScreen> {
           );
           _navigateToMain(username: username, role: 'industry');
         } catch (e) {
+          debugPrint('Industry registration error: $e');
+
+          if (!mounted) return;
+
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Username already exists!')),
+            SnackBar(
+              content: Text('Registration failed: $e'),
+              duration: const Duration(seconds: 5),
+            ),
           );
         }
       } else {
@@ -206,13 +235,35 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       final user = await DatabaseService().loginUser(username, password);
-      if (user != null) {
-        _navigateToMain(username: user['username'], role: user['role']);
-      } else {
+
+      if (user == null) {
+        if (!mounted) return;
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Invalid username or password')),
+          const SnackBar(
+            content: Text('Invalid username or password'),
+          ),
         );
+        return;
       }
+
+      if (user['isBanned'] == true) {
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'This account has been banned. Please contact the administrator.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      _navigateToMain(
+        username: user['username'].toString(),
+        role: user['role'].toString(),
+      );
     }
   }
 
@@ -342,18 +393,17 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 16),
                     TextField(
                       controller: _locationController,
+                      readOnly: true,
                       decoration: InputDecoration(
                         labelText: 'Location',
+                        hintText: 'Select location from map',
                         prefixIcon: const Icon(Icons.location_on),
                         suffixIcon: IconButton(
-                          icon: _isFetchingLocation
-                              ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                              : const Icon(Icons.my_location, color: Colors.indigo),
-                          onPressed: _generateLocation,
+                          icon: const Icon(
+                            Icons.map,
+                            color: Colors.indigo,
+                          ),
+                          onPressed: _pickLocation,
                         ),
                         border: const OutlineInputBorder(),
                       ),

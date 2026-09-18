@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 import 'screen/login_screen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
-void main() {
+void main() async{
   WidgetsFlutterBinding.ensureInitialized();
+
+  await Supabase.initialize(
+    url: 'https://uzdcpcdwlixzcjihqrcx.supabase.co',
+    publishableKey: 'sb_publishable_ylhi6RfPRZNlQ3IF8jLGgw_DMVKE5QV',
+  );
+
   runApp(const MyApp());
 }
 

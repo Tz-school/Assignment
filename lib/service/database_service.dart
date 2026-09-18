@@ -10,6 +10,7 @@ import '../model/resume_model.dart';
 import '../model/mock_interview_model.dart';
 import '../model/timetable_model.dart';
 import '../model/comparison_model.dart';
+import 'supabase_service.dart';
 
 class DatabaseService {
   static final DatabaseService _databaseService = DatabaseService._internal();
@@ -74,20 +75,14 @@ class DatabaseService {
               email TEXT,
               contactNumber TEXT,
               location TEXT,
-              photoPath TEXT,
-              FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+              photoPath TEXT
             )
           ''');
         }
-        if (oldVersion < 4) {
-          await db.execute('ALTER TABLE users ADD COLUMN email TEXT');
-          await db.execute('ALTER TABLE users ADD COLUMN phone TEXT');
-          await db.execute('ALTER TABLE users ADD COLUMN state TEXT');
-          await db.execute('ALTER TABLE users ADD COLUMN photoPath TEXT');
-        }
-        if (oldVersion < 5) {
-          await db.execute('ALTER TABLE users ADD COLUMN name TEXT');
-        }
+        // NOTE: `oldVersion < 4` and `oldVersion < 5` used to ALTER TABLE
+        // `users` (email/phone/state/photoPath/name columns). The `users`
+        // table now lives in Supabase, not sqlite, so those migrations were
+        // removed. See supabase_schema.sql for the Supabase `users` schema.
         if (oldVersion < 6) {
           await db.execute('''
             CREATE TABLE IF NOT EXISTS hiring_posters (
@@ -100,13 +95,52 @@ class DatabaseService {
               title TEXT NOT NULL,
               description TEXT NOT NULL,
               imagePath TEXT,
-              datePosted TEXT NOT NULL,
-              FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+              datePosted TEXT NOT NULL
             )
           ''');
         }
+        if (oldVersion < 7) {
+          await db.execute(
+            'ALTER TABLE industry_partners '
+                'ADD COLUMN state TEXT DEFAULT ""',
+          );
+
+          await db.execute(
+            'ALTER TABLE hiring_posters '
+                'ADD COLUMN state TEXT DEFAULT ""',
+          );
+        }
+        if (oldVersion < 8) {
+          await db.execute('''
+        CREATE TABLE IF NOT EXISTS feedback (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT NOT NULL,
+          rating INTEGER NOT NULL,
+          category TEXT,
+          feature TEXT,
+          comment TEXT,
+          createdAt TEXT NOT NULL
+        )
+      ''');
+        }
+        if (oldVersion < 9) {
+          await db.execute('''
+        CREATE TABLE IF NOT EXISTS applications (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          resumeId INTEGER NOT NULL,
+          hiringPosterId INTEGER NOT NULL,
+          studentUsername TEXT NOT NULL,
+          dateApplied TEXT NOT NULL,
+          FOREIGN KEY (resumeId) REFERENCES resumes(id) ON DELETE CASCADE,
+          FOREIGN KEY (hiringPosterId) REFERENCES hiring_posters(id) ON DELETE CASCADE
+        )
+      ''');
+        }
+        // NOTE: `oldVersion < 10` used to ALTER TABLE `users` ADD COLUMN
+        // Banned. Removed for the same reason as above — `users` is now a
+        // Supabase table.
       },
-      version: 6,
+      version: 10,
     );
   }
 
@@ -120,45 +154,11 @@ class DatabaseService {
     );
     log('TABLE Bookings CREATED');
 
-    await db.execute('''
-      CREATE TABLE users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE,
-        password TEXT,
-        role TEXT,
-        name TEXT,
-        email TEXT,
-        phone TEXT,
-        state TEXT,
-        photoPath TEXT
-      )
-    ''');
-
-    await db.execute('''
-      CREATE TABLE events(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT,
-        description TEXT,
-        speaker TEXT,
-        venue TEXT,
-        date TEXT,
-        time TEXT,
-        capacity INTEGER,
-        booked INTEGER DEFAULT 0
-      )
-    ''');
-
-    await db.execute('''
-      CREATE TABLE event_registrations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        userId INTEGER,
-        eventId INTEGER,
-        status TEXT DEFAULT 'pending',
-        FOREIGN KEY (userId) REFERENCES users(id),
-        FOREIGN KEY (eventId) REFERENCES events(id)
-      )
-    ''');
-    log('TABLE event_registrations CREATED');
+    // NOTE: `users`, `events` and `event_registrations` used to be created
+    // here. They now live in Supabase — see supabase_schema.sql for the
+    // matching table definitions (including the seeded admin user and the
+    // hardcoded counselor accounts that `_seedHardcodedCounselors` used to
+    // insert locally).
 
     await db.execute('''
       CREATE TABLE resumes (
@@ -186,11 +186,15 @@ class DatabaseService {
         email TEXT,
         contactNumber TEXT,
         location TEXT,
-        photoPath TEXT,
-        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+        state TEXT,
+        photoPath TEXT
       )
     ''');
     log('TABLE industry_partners CREATED');
+    // NOTE: `userId` here now refers to a Supabase `users.id`, not a local
+    // sqlite row, so the old `FOREIGN KEY (userId) REFERENCES users(id)`
+    // constraint was dropped — sqlite can't enforce a foreign key against a
+    // table it no longer has.
 
     await db.execute('''
       CREATE TABLE hiring_posters (
@@ -199,15 +203,16 @@ class DatabaseService {
         companyName TEXT NOT NULL,
         email TEXT NOT NULL,
         address TEXT NOT NULL,
+        state TEXT,
         contactNumber TEXT NOT NULL,
         title TEXT NOT NULL,
         description TEXT NOT NULL,
         imagePath TEXT,
-        datePosted TEXT NOT NULL,
-        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+        datePosted TEXT NOT NULL
       )
     ''');
     log('TABLE hiring_posters CREATED');
+    // Same note as industry_partners above: `userId` now points at Supabase.
 
     await db.execute('''
       CREATE TABLE mock_interviews (
@@ -226,12 +231,84 @@ class DatabaseService {
     ''');
     log('TABLE mock_interviews CREATED');
 
-    await _seedHardcodedCounselors(db);
-
-    await db.rawInsert('''
-      INSERT INTO users (username, password, role) 
-      VALUES ('admin', 'admin123', 'admin')
+    await db.execute('''
+      CREATE TABLE feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        rating INTEGER NOT NULL,
+        category TEXT,
+        feature TEXT,
+        comment TEXT,
+        createdAt TEXT NOT NULL
+      )
     ''');
+  }
+
+  // ================= APPLICATIONS =================
+
+  Future<int> submitApplication({
+    required int resumeId,
+    required int hiringPosterId,
+    required String studentUsername,
+  }) async {
+    final db = await database;
+
+    return await db.insert('applications', {
+      'resumeId': resumeId,
+      'hiringPosterId': hiringPosterId,
+      'studentUsername': studentUsername,
+      'dateApplied': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getAllApplications() async {
+    final db = await database;
+
+    return await db.rawQuery('''
+    SELECT
+      a.id AS applicationId,
+      a.studentUsername,
+      a.dateApplied,
+      a.resumeId,
+      a.hiringPosterId,
+      h.title AS hiringPosterTitle,
+      h.companyName,
+      r.*
+    FROM applications a
+    INNER JOIN resumes r
+      ON a.resumeId = r.id
+    INNER JOIN hiring_posters h
+      ON a.hiringPosterId = h.id
+    ORDER BY a.id DESC
+  ''');
+  }
+
+  Future<List<Map<String, dynamic>>> getApplicationsByHiringPoster(
+      int hiringPosterId,
+      ) async {
+    final db = await database;
+
+    return await db.rawQuery(
+      '''
+    SELECT
+      a.id AS applicationId,
+      a.studentUsername,
+      a.dateApplied,
+      a.resumeId,
+      a.hiringPosterId,
+      h.title AS hiringPosterTitle,
+      h.companyName,
+      r.*
+    FROM applications a
+    INNER JOIN resumes r
+      ON a.resumeId = r.id
+    INNER JOIN hiring_posters h
+      ON a.hiringPosterId = h.id
+    WHERE a.hiringPosterId = ?
+    ORDER BY a.id DESC
+  ''',
+      [hiringPosterId],
+    );
   }
 
   // --- HIRING POSTER METHODS ---
@@ -272,11 +349,7 @@ class DatabaseService {
 
   Future<int> deleteHiringPoster(int id) async {
     final db = await database;
-    return await db.delete(
-      'hiring_posters',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    return await db.delete('hiring_posters', where: 'id = ?', whereArgs: [id]);
   }
 
   // --- INDUSTRY PARTNER METHODS ---
@@ -285,21 +358,29 @@ class DatabaseService {
     required String password,
     required IndustryPartner partner,
   }) async {
+    // `users` now lives in Supabase and `industry_partners` stays local, so
+    // this can no longer be a single atomic sqlite transaction the way it
+    // used to be. If the local insert below fails after the Supabase insert
+    // succeeds, you'll end up with a Supabase user that has no local
+    // industry_partners row — worth keeping an eye on / wrapping in retry
+    // logic if that matters for your use case.
+    final userId = await SupabaseService().registerUser(
+      username,
+      password,
+      'industry',
+    );
+
+    if (userId == null) {
+      throw Exception('Failed to create industry user in Supabase');
+    }
+
     final db = await database;
-    return await db.transaction((txn) async {
-      int userId = await txn.insert('users', {
-        'username': username,
-        'password': password,
-        'role': 'industry',
-      });
+    await db.insert(
+      'industry_partners',
+      partner.toMap(assignedUserId: userId),
+    );
 
-      await txn.insert(
-        'industry_partners',
-        partner.toMap(assignedUserId: userId),
-      );
-
-      return userId;
-    });
+    return userId;
   }
 
   Future<IndustryPartner?> getIndustryPartnerByUserId(int userId) async {
@@ -316,43 +397,9 @@ class DatabaseService {
     return null;
   }
 
-  Future<void> _seedHardcodedCounselors(Database db) async {
-    final List<Map<String, dynamic>> hardcodedCounselors = [
-      {
-        'username': 'Sarah',
-        'password': 'a',
-        'role': 'Career Counselor'
-      },
-      {
-        'username': 'James',
-        'password': 'a',
-        'role': 'Career Counselor'
-      },
-      {
-        'username': 'Emily',
-        'password': 'a',
-        'role': 'Career Counselor'
-      },
-    ];
-
-    for (var counselor in hardcodedCounselors) {
-      await db.insert(
-        'users',
-        counselor,
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-    }
-  }
-
-  // --- USER PROFILE METHODS ---
-  Future<Map<String, dynamic>?> getUserProfile(String username) async {
-    final db = await database;
-    final results = await db.query(
-      'users',
-      where: 'username = ?',
-      whereArgs: [username],
-    );
-    return results.isNotEmpty ? results.first : null;
+  // --- USER PROFILE METHODS (delegated to Supabase) ---
+  Future<Map<String, dynamic>?> getUserProfile(String username) {
+    return SupabaseService().getUserProfile(username);
   }
 
   Future<int> updateUserProfile(
@@ -362,22 +409,14 @@ class DatabaseService {
         String? phone,
         String? state,
         String? photoPath,
-      }) async {
-    final db = await database;
-    final updates = <String, dynamic>{};
-    if (name != null) updates['name'] = name;
-    if (email != null) updates['email'] = email;
-    if (phone != null) updates['phone'] = phone;
-    if (state != null) updates['state'] = state;
-    if (photoPath != null) updates['photoPath'] = photoPath;
-
-    if (updates.isEmpty) return 0;
-
-    return await db.update(
-      'users',
-      updates,
-      where: 'username = ?',
-      whereArgs: [username],
+      }) {
+    return SupabaseService().updateUserProfile(
+      username,
+      name: name,
+      email: email,
+      phone: phone,
+      state: state,
+      photoPath: photoPath,
     );
   }
 
@@ -385,23 +424,12 @@ class DatabaseService {
       String username,
       String currentPassword,
       String newPassword,
-      ) async {
-    final db = await database;
-    final match = await db.query(
-      'users',
-      where: 'username = ? AND password = ?',
-      whereArgs: [username, currentPassword],
+      ) {
+    return SupabaseService().changePassword(
+      username,
+      currentPassword,
+      newPassword,
     );
-
-    if (match.isEmpty) return false;
-
-    await db.update(
-      'users',
-      {'password': newPassword},
-      where: 'username = ?',
-      whereArgs: [username],
-    );
-    return true;
   }
 
   // --- MOCK INTERVIEW & ADVISORY METHODS ---
@@ -410,7 +438,19 @@ class DatabaseService {
     return await db.insert('mock_interviews', request.toMap());
   }
 
-  Future<List<MockInterviewModel>> getStudentMockInterviews(String username) async {
+  Future<int> cancelMockInterview(int id) async {
+    final db = await database;
+    return await db.update(
+      'mock_interviews',
+      {'status': 'Cancelled'},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<List<MockInterviewModel>> getStudentMockInterviews(
+      String username,
+      ) async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(
       'mock_interviews',
@@ -418,7 +458,10 @@ class DatabaseService {
       whereArgs: [username],
       orderBy: 'id DESC',
     );
-    return List.generate(maps.length, (i) => MockInterviewModel.fromMap(maps[i]));
+    return List.generate(
+      maps.length,
+          (i) => MockInterviewModel.fromMap(maps[i]),
+    );
   }
 
   // --- RESUME METHODS ---
@@ -429,7 +472,10 @@ class DatabaseService {
 
   Future<List<ResumeData>> getAllResumes() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('resumes', orderBy: 'id DESC');
+    final List<Map<String, dynamic>> maps = await db.query(
+      'resumes',
+      orderBy: 'id DESC',
+    );
     return List.generate(maps.length, (i) => ResumeData.fromMap(maps[i]));
   }
 
@@ -445,117 +491,61 @@ class DatabaseService {
 
   Future<int> deleteResume(int id) async {
     final db = await database;
-    return await db.delete(
-      'resumes',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    return await db.delete('resumes', where: 'id = ?', whereArgs: [id]);
   }
 
-  // --- EVENT METHODS ---
+  // --- EVENT METHODS (delegated to Supabase) ---
   Future<int> insertEvent(EventModel event) async {
-    final db = await database;
-    return await db.insert('events', event.toMap());
+    final id = await SupabaseService().insertEvent(event);
+    if (id == null) throw Exception('Failed to insert event');
+    return id;
   }
 
-  Future<void> deleteEvent(int id) async {
-    final db = await database;
-    await db.delete('events', where: 'id = ?', whereArgs: [id]);
+  Future<void> deleteEvent(int id) {
+    return SupabaseService().deleteEvent(id);
   }
 
-  Future<List<EventModel>> getEvents() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('events');
-    return List.generate(maps.length, (i) => EventModel.fromMap(maps[i]));
+  Future<List<EventModel>> getEvents() {
+    return SupabaseService().getEvents();
   }
 
-  Future<void> incrementEventBooking(int eventId, int currentBooked) async {
-    final db = await database;
-    await db.update(
-      'events',
-      {'booked': currentBooked + 1},
-      where: 'id = ?',
-      whereArgs: [eventId],
-    );
+  Future<void> incrementEventBooking(int eventId, int currentBooked) {
+    return SupabaseService().incrementEventBooking(eventId, currentBooked);
   }
 
-  // --- REGISTRATION & APPROVAL LOGIC ---
-  Future<int?> getUserId(String username) async {
-    final db = await database;
-    var results = await db.query(
-        'users',
-        columns: ['id'],
-        where: 'username = ?',
-        whereArgs: [username]
-    );
-    if (results.isNotEmpty) {
-      return results.first['id'] as int;
-    }
-    return null;
+  // --- REGISTRATION & APPROVAL LOGIC (delegated to Supabase) ---
+  Future<int?> getUserId(String username) {
+    return SupabaseService().getUserId(username);
   }
 
-  Future<bool> hasUserRegistered(int userId, int eventId) async {
-    final db = await database;
-    final result = await db.query(
-      'event_registrations',
-      where: 'userId = ? AND eventId = ?',
-      whereArgs: [userId, eventId],
-    );
-    return result.isNotEmpty;
+  Future<bool> hasUserRegistered(int userId, int eventId) {
+    return SupabaseService().hasUserRegistered(userId, eventId);
   }
 
   Future<int> registerForEvent(int userId, int eventId) async {
-    final db = await database;
-    return await db.insert('event_registrations', {
-      'userId': userId,
-      'eventId': eventId,
-      'status': 'pending'
-    });
+    final id = await SupabaseService().registerForEvent(userId, eventId);
+    if (id == null) throw Exception('Failed to register for event');
+    return id;
   }
 
-  Future<List<EventRegistrationModel>> getUserRegistrations(int userId) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.rawQuery('''
-      SELECT er.id as registrationId, er.status, 
-             e.title as eventTitle, e.date, e.time, e.id as eventId
-      FROM event_registrations er
-      JOIN events e ON er.eventId = e.id
-      WHERE er.userId = ?
-    ''', [userId]);
-
-    return List.generate(maps.length, (i) => EventRegistrationModel.fromMap(maps[i]));
+  Future<List<EventRegistrationModel>> getUserRegistrations(int userId) {
+    return SupabaseService().getUserRegistrations(userId);
   }
 
-  Future<List<EventRegistrationModel>> getAllRegistrations() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.rawQuery('''
-      SELECT er.id as registrationId, er.status, 
-             u.username, u.id as userId,
-             e.title as eventTitle, e.date, e.time, e.id as eventId
-      FROM event_registrations er
-      JOIN users u ON er.userId = u.id
-      JOIN events e ON er.eventId = e.id
-    ''');
-
-    return List.generate(maps.length, (i) => EventRegistrationModel.fromMap(maps[i]));
+  Future<List<EventRegistrationModel>> getAllRegistrations() {
+    return SupabaseService().getAllRegistrations();
   }
 
-  Future<void> updateRegistrationStatus(int registrationId, int eventId, String newStatus) async {
-    final db = await database;
-
-    await db.update(
-      'event_registrations',
-      {'status': newStatus},
-      where: 'id = ?',
-      whereArgs: [registrationId],
+  Future<void> updateRegistrationStatus(
+      int registrationId,
+      int eventId,
+      String newStatus,
+      ) {
+    return SupabaseService().updateRegistrationStatus(
+      registrationId,
+      eventId,
+      newStatus,
     );
-
-    if (newStatus.toLowerCase() == 'accepted') {
-      await db.rawUpdate(
-          'UPDATE events SET booked = booked + 1 WHERE id = ?',
-          [eventId]
-      );
-    }
   }
 
   // --- BOOKING METHODS ---
@@ -590,53 +580,30 @@ class DatabaseService {
     log('deleted $data');
   }
 
-  // --- USER AUTHENTICATION ---
-  Future<int> registerUser(String username, String password, String role) async {
-    final db = await database;
-    return await db.insert('users', {
-      'username': username,
-      'password': password,
-      'role': role,
-    });
+  // --- USER AUTHENTICATION (delegated to Supabase) ---
+  Future<int> registerUser(
+      String username,
+      String password,
+      String role,
+      ) async {
+    final id = await SupabaseService().registerUser(username, password, role);
+    if (id == null) throw Exception('Failed to register user');
+    return id;
   }
 
-  Future<Map<String, dynamic>?> loginUser(String username, String password) async {
-    final db = await database;
-    List<Map<String, dynamic>> results = await db.query(
-      'users',
-      where: 'username = ? AND password = ?',
-      whereArgs: [username, password],
-    );
-    if (results.isNotEmpty) {
-      return results.first;
-    }
-    return null;
+  Future<Map<String, dynamic>?> loginUser(
+      String username,
+      String password,
+      ) {
+    return SupabaseService().loginUser(username, password);
   }
 
-  Future<List<String>> getAcceptedParticipants(int eventId) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.rawQuery('''
-      SELECT u.username 
-      FROM event_registrations er
-      JOIN users u ON er.userId = u.id
-      WHERE er.eventId = ? AND er.status = 'accepted'
-    ''', [eventId]);
-
-    return List.generate(maps.length, (i) => maps[i]['username'] as String);
+  Future<List<String>> getAcceptedParticipants(int eventId) {
+    return SupabaseService().getAcceptedParticipants(eventId);
   }
 
-  Future<EventModel?> getEventById(int id) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'events',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-
-    if (maps.isNotEmpty) {
-      return EventModel.fromMap(maps.first);
-    }
-    return null;
+  Future<EventModel?> getEventById(int id) {
+    return SupabaseService().getEventById(id);
   }
 
   Future<void> _ensureComparisonTable(Database db) async {
@@ -661,7 +628,9 @@ class DatabaseService {
     return await db.insert('saved_comparisons', item.toMap());
   }
 
-  Future<List<ComparisonModel>> getComparisons({String searchQuery = ''}) async {
+  Future<List<ComparisonModel>> getComparisons({
+    String searchQuery = '',
+  }) async {
     final db = await database;
     await _ensureComparisonTable(db);
     List<Map<String, dynamic>> maps;
@@ -702,16 +671,25 @@ class DatabaseService {
   // --- ADMIN MOCK INTERVIEW & COUNSELOR METHODS ---
   Future<List<MockInterviewModel>> getAllMockInterviews() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('mock_interviews', orderBy: 'id DESC');
-    return List.generate(maps.length, (i) => MockInterviewModel.fromMap(maps[i]));
+    final List<Map<String, dynamic>> maps = await db.query(
+      'mock_interviews',
+      orderBy: 'id DESC',
+    );
+    return List.generate(
+      maps.length,
+          (i) => MockInterviewModel.fromMap(maps[i]),
+    );
   }
 
-  Future<List<Map<String, dynamic>>> getCareerCounselors() async {
-    final db = await database;
-    return await db.query('users', where: 'role = ?', whereArgs: ['Career Counselor']);
+  Future<List<Map<String, dynamic>>> getCareerCounselors() {
+    return SupabaseService().getCareerCounselors();
   }
 
-  Future<bool> isCounselorAvailable(String counselorName, String date, String time) async {
+  Future<bool> isCounselorAvailable(
+      String counselorName,
+      String date,
+      String time,
+      ) async {
     final db = await database;
     final results = await db.query(
       'mock_interviews',
@@ -731,7 +709,10 @@ class DatabaseService {
     );
   }
 
-  Future<List<TimetableSlot>> getAdvisorTimetable(String advisorName, String date) async {
+  Future<List<TimetableSlot>> getAdvisorTimetable(
+      String advisorName,
+      String date,
+      ) async {
     final db = await database;
 
     final results = await db.query(
@@ -740,15 +721,20 @@ class DatabaseService {
       whereArgs: [advisorName, date, 'Accepted'],
     );
 
-    final bookedTimes = results.map((r) => r['assignedTime'] as String?).whereType<String>().toSet();
+    final bookedTimes = results
+        .map((r) => r['assignedTime'] as String?)
+        .whereType<String>()
+        .toSet();
 
     List<TimetableSlot> schedule = [];
     for (int i = 9; i <= 17; i++) {
       String timeLabel = '${i.toString().padLeft(2, '0')}:00';
-      schedule.add(TimetableSlot(
-        timeLabel: timeLabel,
-        isBooked: bookedTimes.contains(timeLabel),
-      ));
+      schedule.add(
+        TimetableSlot(
+          timeLabel: timeLabel,
+          isBooked: bookedTimes.contains(timeLabel),
+        ),
+      );
     }
 
     return schedule;
@@ -769,10 +755,59 @@ class DatabaseService {
         'assignedTime': assignedTime,
         'venue': venue,
         'durationMinutes': duration,
-        'status': 'Accepted'
+        'status': 'Accepted',
       },
       where: 'id = ?',
       whereArgs: [requestId],
     );
+  }
+
+  // --- FEEDBACK METHODS ---
+  Future<int> insertFeedback(
+      String username,
+      int rating,
+      String comment, {
+        String? category,
+        String? feature,
+      }) async {
+    final db = await database;
+    return await db.insert('feedback', {
+      'username': username,
+      'rating': rating,
+      'comment': comment,
+      'category': category,
+      'feature': feature,
+      'createdAt': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getAllFeedback() async {
+    final db = await database;
+    return await db.query('feedback', orderBy: 'id DESC');
+  }
+
+  Future<int> deleteFeedback(int id) async {
+    final db = await database;
+    return await db.delete('feedback', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // --- ADMIN USER MANAGEMENT METHODS ---
+
+  Future<List<Map<String, dynamic>>> getStudentUsers() {
+    return SupabaseService().getStudentUsers();
+  }
+
+  Future<int> updateUserBanStatus({
+    required String username,
+    required bool banned,
+  }) {
+    return SupabaseService().updateUserBanStatus(
+      username: username,
+      banned: banned,
+    );
+  }
+
+  bool isUserBanned(Map<String, dynamic> user) {
+    return user['Banned']?.toString().toLowerCase() == 'yes';
   }
 }

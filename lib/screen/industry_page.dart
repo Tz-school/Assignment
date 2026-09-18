@@ -164,10 +164,12 @@ class _IndustryPageState extends State<IndustryPage> {
           ),
         ),
 
-        body: const TabBarView(
+        body:  TabBarView(
           children: [
             ResumeHomeTab(),
-            JobSeekerTab(),
+            JobSeekerTab(
+              username: widget.username,
+            ),
           ],
         ),
 

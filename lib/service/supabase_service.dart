@@ -65,8 +65,8 @@ class SupabaseService {
       String username2,
       ) {
     final names = [
-      username1,
-      username2,
+      username1.trim(),
+      username2.trim(),
     ]..sort();
 
     return '${names[0]}_${names[1]}';
@@ -77,21 +77,25 @@ class SupabaseService {
     required String receiverUsername,
     required String message,
   }) async {
-    final conversationId =
-    makeConversationId(
-      senderUsername,
-      receiverUsername,
+    final sender = senderUsername.trim();
+    final receiver = receiverUsername.trim();
+    final text = message.trim();
+
+    if (sender.isEmpty || receiver.isEmpty || text.isEmpty) {
+      throw Exception('Username or message is empty');
+    }
+
+    final conversationId = makeConversationId(
+      sender,
+      receiver,
     );
 
-    await _supabase
-        .from('chat_messages')
-        .insert({
+    await _supabase.from('chat_messages').insert({
       'conversation_id': conversationId,
-      'sender_username': senderUsername,
-      'receiver_username': receiverUsername,
-      'message': message,
-      'created_at':
-      DateTime.now().toIso8601String(),
+      'sender_username': sender,
+      'receiver_username': receiver,
+      'message': text,
+      'created_at': DateTime.now().toIso8601String(),
       'is_read': false,
     });
   }
@@ -149,117 +153,95 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> getChatList({
     required String username,
   }) async {
+    final currentUsername = username.trim();
+
+    if (currentUsername.isEmpty) {
+      return [];
+    }
 
     final sent = await _supabase
         .from('chat_messages')
         .select()
-        .eq(
-      'sender_username',
-      username,
-    )
-        .order(
-      'created_at',
-      ascending: false,
-    );
+        .eq('sender_username', currentUsername)
+        .order('created_at', ascending: false);
 
     final received = await _supabase
         .from('chat_messages')
         .select()
-        .eq(
-      'receiver_username',
-      username,
-    )
-        .order(
-      'created_at',
-      ascending: false,
-    );
+        .eq('receiver_username', currentUsername)
+        .order('created_at', ascending: false);
 
     final allMessages = [
       ...List<Map<String, dynamic>>.from(sent),
       ...List<Map<String, dynamic>>.from(received),
     ];
 
-
+    // Sort newest message first.
     allMessages.sort((a, b) {
-      final dateA =
-          DateTime.tryParse(
-            a['created_at']
-                ?.toString() ??
-                '',
-          ) ??
-              DateTime(2000);
+      final dateA = DateTime.tryParse(
+        a['created_at']?.toString() ?? '',
+      ) ??
+          DateTime(2000);
 
-      final dateB =
-          DateTime.tryParse(
-            b['created_at']
-                ?.toString() ??
-                '',
-          ) ??
-              DateTime(2000);
+      final dateB = DateTime.tryParse(
+        b['created_at']?.toString() ?? '',
+      ) ??
+          DateTime(2000);
 
       return dateB.compareTo(dateA);
     });
 
-    final Map<String, Map<String, dynamic>>
-    conversations = {};
+    final Map<String, Map<String, dynamic>> conversations = {};
 
     for (final message in allMessages) {
       final sender =
-          message['sender_username']
-              ?.toString() ??
-              '';
+          message['sender_username']?.toString().trim() ?? '';
 
       final receiver =
-          message['receiver_username']
-              ?.toString() ??
-              '';
+          message['receiver_username']?.toString().trim() ?? '';
 
-      final otherUsername =
-      sender == username
-          ? receiver
-          : sender;
+      String otherUsername;
+
+      if (sender == currentUsername) {
+        otherUsername = receiver;
+      } else {
+        otherUsername = sender;
+      }
 
       if (otherUsername.isEmpty) {
         continue;
       }
 
-      if (!conversations
-          .containsKey(otherUsername)) {
+      if (!conversations.containsKey(otherUsername)) {
         conversations[otherUsername] = {
-          'otherUsername':
-          otherUsername,
+          'otherUsername': otherUsername,
           'lastMessage':
-          message['message']
-              ?.toString() ??
-              '',
+          message['message']?.toString() ?? '',
           'lastMessageTime':
           message['created_at'],
           'unread': 0,
         };
       }
     }
+
+    // Count unread messages.
     for (final message in allMessages) {
       final sender =
-          message['sender_username']
-              ?.toString() ??
-              '';
+          message['sender_username']?.toString().trim() ?? '';
+
       final receiver =
-          message['receiver_username']
-              ?.toString() ??
-              '';
-      if (receiver == username &&
-          message['is_read'] == false) {
-        final otherUsername = sender;
-        if (conversations
-            .containsKey(otherUsername)) {
-          conversations[otherUsername]![
-          'unread'] =
-              (conversations[otherUsername]![
-              'unread'] ??
-                  0) + 1;
+          message['receiver_username']?.toString().trim() ?? '';
+
+      final isRead = message['is_read'] == true;
+
+      if (receiver == currentUsername && !isRead) {
+        if (conversations.containsKey(sender)) {
+          conversations[sender]!['unread'] =
+              (conversations[sender]!['unread'] ?? 0) + 1;
         }
       }
     }
+
     return conversations.values.toList();
   }
   Future<int> getUnreadChatCount({

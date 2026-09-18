@@ -136,11 +136,25 @@ class DatabaseService {
         )
       ''');
         }
+        if (oldVersion < 11) {
+          await db.execute('''
+        CREATE TABLE IF NOT EXISTS applications (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          resumeId INTEGER NOT NULL,
+          hiringPosterId INTEGER NOT NULL,
+          studentUsername TEXT NOT NULL,
+          dateApplied TEXT NOT NULL,
+          FOREIGN KEY (resumeId) REFERENCES resumes(id) ON DELETE CASCADE,
+          FOREIGN KEY (hiringPosterId) REFERENCES hiring_posters(id) ON DELETE CASCADE
+    )
+  ''');
+        }
         // NOTE: `oldVersion < 10` used to ALTER TABLE `users` ADD COLUMN
         // Banned. Removed for the same reason as above — `users` is now a
         // Supabase table.
       },
-      version: 10,
+
+      version: 11,
     );
   }
 
@@ -191,10 +205,6 @@ class DatabaseService {
       )
     ''');
     log('TABLE industry_partners CREATED');
-    // NOTE: `userId` here now refers to a Supabase `users.id`, not a local
-    // sqlite row, so the old `FOREIGN KEY (userId) REFERENCES users(id)`
-    // constraint was dropped — sqlite can't enforce a foreign key against a
-    // table it no longer has.
 
     await db.execute('''
       CREATE TABLE hiring_posters (
@@ -212,7 +222,6 @@ class DatabaseService {
       )
     ''');
     log('TABLE hiring_posters CREATED');
-    // Same note as industry_partners above: `userId` now points at Supabase.
 
     await db.execute('''
       CREATE TABLE mock_interviews (
@@ -242,6 +251,19 @@ class DatabaseService {
         createdAt TEXT NOT NULL
       )
     ''');
+    await db.execute('''
+      CREATE TABLE applications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        resumeId INTEGER NOT NULL,
+        hiringPosterId INTEGER NOT NULL,
+        studentUsername TEXT NOT NULL,
+        dateApplied TEXT NOT NULL,
+        FOREIGN KEY (resumeId) REFERENCES resumes(id) ON DELETE CASCADE,
+        FOREIGN KEY (hiringPosterId) REFERENCES hiring_posters(id) ON DELETE CASCADE
+  )
+''');
+
+    log('TABLE applications CREATED');
   }
 
   // ================= APPLICATIONS =================

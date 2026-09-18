@@ -30,14 +30,34 @@ class _ChatScreenState extends State<ChatScreen> {
 
 
   Future<void> _loadChatList() async {
+    debugPrint('================ CHAT DEBUG ================');
+    debugPrint('USERNAME FROM CHAT SCREEN: "${widget.username}"');
+    debugPrint('USERNAME LENGTH: ${widget.username.length}');
+    debugPrint('USERNAME TRIMMED: "${widget.username.trim()}"');
+
     setState(() {
       _isLoading = true;
     });
 
     try {
       final chats = await _supabaseService.getChatList(
-        username: widget.username,
+        username: widget.username.trim(),
       );
+
+      debugPrint('CHAT LIST RESULT: $chats');
+      debugPrint('CHAT COUNT: ${chats.length}');
+
+      if (chats.isNotEmpty) {
+        for (final chat in chats) {
+          debugPrint(
+            'CHAT: other=${chat['otherUsername']}, '
+                'message=${chat['lastMessage']}, '
+                'unread=${chat['unread']}',
+          );
+        }
+      }
+
+      debugPrint('============================================');
 
       if (!mounted) return;
 
@@ -46,7 +66,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      debugPrint('Error loading chat list: $e');
+      debugPrint('CHAT ERROR: $e');
 
       if (!mounted) return;
 
@@ -56,14 +76,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Failed to load chats: $e',
-          ),
+          content: Text('Chat error: $e'),
         ),
       );
     }
   }
-
 
 
   void _openChat(String otherUsername) {

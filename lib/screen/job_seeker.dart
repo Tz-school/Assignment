@@ -4,8 +4,14 @@ import '../model/hiring_poster_model.dart';
 import '../model/resume_model.dart';
 import '../service/database_service.dart';
 
+
 class JobSeekerTab extends StatefulWidget {
-  const JobSeekerTab({super.key});
+  final String username;
+
+  const JobSeekerTab({
+    super.key,
+    required this.username,
+  });
 
   @override
   State<JobSeekerTab> createState() => _JobSeekerTabState();
@@ -53,7 +59,10 @@ class _JobSeekerTabState extends State<JobSeekerTab> {
     });
 
     try {
-      final posters = await _databaseService.getAllHiringPosters();
+      final posters =
+      await _databaseService.getAllHiringPosters();
+
+      if (!mounted) return;
 
       setState(() {
         _allPosters = posters;
@@ -61,11 +70,11 @@ class _JobSeekerTabState extends State<JobSeekerTab> {
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
+
       setState(() {
         _isLoading = false;
       });
-
-      if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -110,7 +119,12 @@ class _JobSeekerTabState extends State<JobSeekerTab> {
 
   Widget _buildFilter() {
     return Card(
-      margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      margin: const EdgeInsets.fromLTRB(
+        16,
+        16,
+        16,
+        8,
+      ),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(
@@ -171,6 +185,7 @@ class _JobSeekerTabState extends State<JobSeekerTab> {
             MaterialPageRoute(
               builder: (context) => HiringPosterDetailPage(
                 poster: poster,
+                username: widget.username,
               ),
             ),
           );
@@ -178,13 +193,15 @@ class _JobSeekerTabState extends State<JobSeekerTab> {
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment:
+            CrossAxisAlignment.start,
             children: [
               _buildPosterImage(poster),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
                   children: [
                     Text(
                       poster.title,
@@ -207,7 +224,8 @@ class _JobSeekerTabState extends State<JobSeekerTab> {
                     ),
                     const SizedBox(height: 6),
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment:
+                      CrossAxisAlignment.start,
                       children: [
                         const Icon(
                           Icons.location_on,
@@ -221,7 +239,8 @@ class _JobSeekerTabState extends State<JobSeekerTab> {
                                 ? poster.address
                                 : poster.state,
                             maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                            overflow:
+                            TextOverflow.ellipsis,
                             style: const TextStyle(
                               color: Colors.grey,
                             ),
@@ -303,7 +322,8 @@ class _JobSeekerTabState extends State<JobSeekerTab> {
       child: Padding(
         padding: const EdgeInsets.all(30),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisAlignment:
+          MainAxisAlignment.center,
           children: [
             Icon(
               Icons.work_off,
@@ -350,6 +370,7 @@ class _JobSeekerTabState extends State<JobSeekerTab> {
       body: Column(
         children: [
           _buildFilter(),
+
           Padding(
             padding: const EdgeInsets.symmetric(
               horizontal: 16,
@@ -366,7 +387,9 @@ class _JobSeekerTabState extends State<JobSeekerTab> {
               ],
             ),
           ),
+
           const SizedBox(height: 4),
+
           Expanded(
             child: _isLoading
                 ? const Center(
@@ -377,11 +400,14 @@ class _JobSeekerTabState extends State<JobSeekerTab> {
                 : RefreshIndicator(
               onRefresh: _loadHiringPosters,
               child: ListView.builder(
-                padding: const EdgeInsets.only(
+                padding:
+                const EdgeInsets.only(
                   bottom: 20,
                 ),
-                itemCount: _filteredPosters.length,
-                itemBuilder: (context, index) {
+                itemCount:
+                _filteredPosters.length,
+                itemBuilder:
+                    (context, index) {
                   return _buildJobCard(
                     _filteredPosters[index],
                   );
@@ -396,13 +422,14 @@ class _JobSeekerTabState extends State<JobSeekerTab> {
 }
 
 
-
 class HiringPosterDetailPage extends StatelessWidget {
   final HiringPoster poster;
+  final String username;
 
   const HiringPosterDetailPage({
     super.key,
     required this.poster,
+    required this.username,
   });
 
   String _formatDate(String date) {
@@ -431,9 +458,12 @@ class HiringPosterDetailPage extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.only(
+        bottom: 14,
+      ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+        CrossAxisAlignment.start,
         children: [
           Icon(
             icon,
@@ -442,7 +472,8 @@ class HiringPosterDetailPage extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment:
+              CrossAxisAlignment.start,
               children: [
                 Text(
                   title,
@@ -475,12 +506,14 @@ class HiringPosterDetailPage extends StatelessWidget {
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment:
+          CrossAxisAlignment.start,
           children: [
             if (poster.imagePath.isNotEmpty &&
                 File(poster.imagePath).existsSync())
               ClipRRect(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius:
+                BorderRadius.circular(12),
                 child: Image.file(
                   File(poster.imagePath),
                   width: double.infinity,
@@ -494,7 +527,8 @@ class HiringPosterDetailPage extends StatelessWidget {
                 height: 180,
                 decoration: BoxDecoration(
                   color: Colors.indigo.shade50,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius:
+                  BorderRadius.circular(12),
                 ),
                 child: const Icon(
                   Icons.business,
@@ -502,7 +536,9 @@ class HiringPosterDetailPage extends StatelessWidget {
                   color: Colors.indigo,
                 ),
               ),
+
             const SizedBox(height: 20),
+
             Text(
               poster.title,
               style: const TextStyle(
@@ -510,7 +546,9 @@ class HiringPosterDetailPage extends StatelessWidget {
                 fontWeight: FontWeight.bold,
               ),
             ),
+
             const SizedBox(height: 8),
+
             Text(
               poster.companyName,
               style: const TextStyle(
@@ -519,36 +557,48 @@ class HiringPosterDetailPage extends StatelessWidget {
                 fontWeight: FontWeight.w500,
               ),
             ),
+
             const SizedBox(height: 20),
+
             const Divider(),
+
             const SizedBox(height: 16),
+
             _detailRow(
               Icons.location_on,
               'Location',
               poster.address,
             ),
+
             _detailRow(
               Icons.map,
               'State',
               poster.state,
             ),
+
             _detailRow(
               Icons.email,
               'Email',
               poster.email,
             ),
+
             _detailRow(
               Icons.phone,
               'Contact Number',
               poster.contactNumber,
             ),
+
             if (poster.datePosted.isNotEmpty)
               _detailRow(
                 Icons.calendar_today,
                 'Date Posted',
-                _formatDate(poster.datePosted),
+                _formatDate(
+                  poster.datePosted,
+                ),
               ),
+
             const SizedBox(height: 10),
+
             const Text(
               'Job Description',
               style: TextStyle(
@@ -556,13 +606,16 @@ class HiringPosterDetailPage extends StatelessWidget {
                 fontWeight: FontWeight.bold,
               ),
             ),
+
             const SizedBox(height: 10),
+
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius:
+                BorderRadius.circular(12),
               ),
               child: Text(
                 poster.description.isEmpty
@@ -574,8 +627,8 @@ class HiringPosterDetailPage extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 30),
 
+            const SizedBox(height: 30),
 
             SizedBox(
               width: double.infinity,
@@ -585,9 +638,12 @@ class HiringPosterDetailPage extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => SelectResumePage(
-                        poster: poster,
-                      ),
+                      builder: (context) =>
+                          SelectResumePage(
+                            poster: poster,
+
+                            currentUsername: username,
+                          ),
                     ),
                   );
                 },
@@ -614,17 +670,23 @@ class HiringPosterDetailPage extends StatelessWidget {
 class SelectResumePage extends StatefulWidget {
   final HiringPoster poster;
 
+  final String currentUsername;
+
   const SelectResumePage({
     super.key,
     required this.poster,
+    required this.currentUsername,
   });
 
   @override
-  State<SelectResumePage> createState() => _SelectResumePageState();
+  State<SelectResumePage> createState() =>
+      _SelectResumePageState();
 }
 
-class _SelectResumePageState extends State<SelectResumePage> {
-  final DatabaseService _databaseService = DatabaseService();
+class _SelectResumePageState
+    extends State<SelectResumePage> {
+  final DatabaseService _databaseService =
+  DatabaseService();
 
   List<ResumeData> _resumes = [];
 
@@ -644,18 +706,21 @@ class _SelectResumePageState extends State<SelectResumePage> {
     });
 
     try {
-      final resumes = await _databaseService.getAllResumes();
+      final resumes =
+      await _databaseService.getAllResumes();
+
+      if (!mounted) return;
 
       setState(() {
         _resumes = resumes;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
+
       setState(() {
         _isLoading = false;
       });
-
-      if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -666,6 +731,7 @@ class _SelectResumePageState extends State<SelectResumePage> {
       );
     }
   }
+
 
 
   Future<void> _reviewResume() async {
@@ -680,22 +746,27 @@ class _SelectResumePageState extends State<SelectResumePage> {
       return;
     }
 
-    final confirmed = await Navigator.push<bool>(
+    final confirmed =
+    await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (context) => ResumeReviewPage(
-          resume: _selectedResume!,
-          poster: widget.poster,
-        ),
+        builder: (context) =>
+            ResumeReviewPage(
+              resume: _selectedResume!,
+              poster: widget.poster,
+            ),
       ),
     );
 
 
     if (confirmed == true) {
-      if (_selectedResume?.id == null || widget.poster.id == null) {
+      if (_selectedResume?.id == null ||
+          widget.poster.id == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Unable to submit application. Missing ID.'),
+            content: Text(
+              'Unable to submit application. Missing ID.',
+            ),
           ),
         );
         return;
@@ -705,14 +776,19 @@ class _SelectResumePageState extends State<SelectResumePage> {
         await _databaseService.submitApplication(
           resumeId: _selectedResume!.id!,
           hiringPosterId: widget.poster.id!,
-          studentUsername: _selectedResume!.fullName,
+
+
+          studentUsername:
+          widget.currentUsername,
         );
 
         if (!mounted) return;
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Application submitted successfully!'),
+            content: Text(
+              'Application submitted successfully!',
+            ),
           ),
         );
 
@@ -722,7 +798,9 @@ class _SelectResumePageState extends State<SelectResumePage> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to submit application: $e'),
+            content: Text(
+              'Failed to submit application: $e',
+            ),
           ),
         );
       }
@@ -730,13 +808,17 @@ class _SelectResumePageState extends State<SelectResumePage> {
   }
 
   Widget _resumeCard(ResumeData resume) {
-    final isSelected = _selectedResume?.id == resume.id;
+    final isSelected =
+        _selectedResume?.id == resume.id;
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(
+        bottom: 12,
+      ),
       child: RadioListTile<int>(
         value: resume.id ?? 0,
-        groupValue: _selectedResume?.id ?? -1,
+        groupValue:
+        _selectedResume?.id ?? -1,
         onChanged: (value) {
           setState(() {
             _selectedResume = resume;
@@ -751,17 +833,21 @@ class _SelectResumePageState extends State<SelectResumePage> {
           ),
         ),
         subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment:
+          CrossAxisAlignment.start,
           children: [
             if (resume.email.isNotEmpty)
               Text(resume.email),
+
             if (resume.phone.isNotEmpty)
               Text(resume.phone),
+
             if (resume.address.isNotEmpty)
               Text(
                 resume.address,
                 maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+                overflow:
+                TextOverflow.ellipsis,
               ),
           ],
         ),
@@ -775,8 +861,11 @@ class _SelectResumePageState extends State<SelectResumePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Select Resume'),
+        title: const Text(
+          'Select Resume',
+        ),
       ),
+
       body: _isLoading
           ? const Center(
         child: CircularProgressIndicator(),
@@ -784,27 +873,40 @@ class _SelectResumePageState extends State<SelectResumePage> {
           : _resumes.isEmpty
           ? Center(
         child: Padding(
-          padding: const EdgeInsets.all(30),
+          padding:
+          const EdgeInsets.all(30),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisAlignment:
+            MainAxisAlignment.center,
             children: [
               Icon(
                 Icons.description_outlined,
                 size: 70,
-                color: Colors.grey.shade400,
+                color:
+                Colors.grey.shade400,
               ),
-              const SizedBox(height: 16),
+
+              const SizedBox(
+                height: 16,
+              ),
+
               const Text(
                 'No Resume Found',
                 style: TextStyle(
                   fontSize: 20,
-                  fontWeight: FontWeight.bold,
+                  fontWeight:
+                  FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 8),
+
+              const SizedBox(
+                height: 8,
+              ),
+
               const Text(
                 'Please create a resume before applying for a job.',
-                textAlign: TextAlign.center,
+                textAlign:
+                TextAlign.center,
                 style: TextStyle(
                   color: Colors.grey,
                 ),
@@ -815,16 +917,26 @@ class _SelectResumePageState extends State<SelectResumePage> {
       )
           : Column(
         children: [
+
           Container(
             width: double.infinity,
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.indigo.shade50,
-              borderRadius: BorderRadius.circular(12),
+            margin:
+            const EdgeInsets.all(16),
+            padding:
+            const EdgeInsets.all(16),
+            decoration:
+            BoxDecoration(
+              color:
+              Colors.indigo.shade50,
+              borderRadius:
+              BorderRadius.circular(
+                12,
+              ),
             ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment:
+              CrossAxisAlignment
+                  .start,
               children: [
                 const Text(
                   'Applying for',
@@ -832,50 +944,74 @@ class _SelectResumePageState extends State<SelectResumePage> {
                     color: Colors.grey,
                   ),
                 ),
-                const SizedBox(height: 4),
+
+                const SizedBox(
+                  height: 4,
+                ),
+
                 Text(
                   widget.poster.title,
-                  style: const TextStyle(
+                  style:
+                  const TextStyle(
                     fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                    fontWeight:
+                    FontWeight.bold,
                   ),
                 ),
-                const SizedBox(height: 4),
+
+                const SizedBox(
+                  height: 4,
+                ),
+
                 Text(
-                  widget.poster.companyName,
-                  style: const TextStyle(
-                    color: Colors.indigo,
+                  widget.poster
+                      .companyName,
+                  style:
+                  const TextStyle(
+                    color:
+                    Colors.indigo,
                   ),
                 ),
               ],
             ),
           ),
 
+
           const Padding(
-            padding: EdgeInsets.symmetric(
+            padding:
+            EdgeInsets.symmetric(
               horizontal: 16,
             ),
             child: Align(
-              alignment: Alignment.centerLeft,
+              alignment:
+              Alignment.centerLeft,
               child: Text(
                 'Choose your resume',
                 style: TextStyle(
                   fontSize: 18,
-                  fontWeight: FontWeight.bold,
+                  fontWeight:
+                  FontWeight.bold,
                 ),
               ),
             ),
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(
+            height: 12,
+          ),
 
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(
+            child:
+            ListView.builder(
+              padding:
+              const EdgeInsets
+                  .symmetric(
                 horizontal: 16,
               ),
-              itemCount: _resumes.length,
-              itemBuilder: (context, index) {
+              itemCount:
+              _resumes.length,
+              itemBuilder:
+                  (context, index) {
                 return _resumeCard(
                   _resumes[index],
                 );
@@ -883,20 +1019,28 @@ class _SelectResumePageState extends State<SelectResumePage> {
             ),
           ),
 
+
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding:
+              const EdgeInsets.all(
+                16,
+              ),
               child: SizedBox(
-                width: double.infinity,
+                width:
+                double.infinity,
                 height: 52,
-                child: ElevatedButton.icon(
-                  onPressed: _reviewResume,
+                child:
+                ElevatedButton.icon(
+                  onPressed:
+                  _reviewResume,
                   icon: const Icon(
                     Icons.visibility,
                   ),
                   label: const Text(
                     'Review Resume Before Submitting',
-                    style: TextStyle(
+                    style:
+                    TextStyle(
                       fontSize: 16,
                     ),
                   ),
@@ -952,7 +1096,8 @@ class ResumeReviewPage extends StatelessWidget {
         bottom: 12,
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+        CrossAxisAlignment.start,
         children: [
           Text(
             label,
@@ -962,7 +1107,9 @@ class ResumeReviewPage extends StatelessWidget {
               fontWeight: FontWeight.w500,
             ),
           ),
+
           const SizedBox(height: 3),
+
           Text(
             value,
             style: const TextStyle(
@@ -979,7 +1126,9 @@ class ResumeReviewPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Review Your Resume'),
+        title: const Text(
+          'Review Your Resume',
+        ),
       ),
 
       body: Column(
@@ -996,19 +1145,23 @@ class ResumeReviewPage extends StatelessWidget {
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: Colors.orange.shade50,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius:
+              BorderRadius.circular(12),
               border: Border.all(
                 color: Colors.orange.shade200,
               ),
             ),
             child: const Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment:
+              CrossAxisAlignment.start,
               children: [
                 Icon(
                   Icons.warning_amber_rounded,
                   color: Colors.orange,
                 ),
+
                 SizedBox(width: 10),
+
                 Expanded(
                   child: Text(
                     'Please double-check your resume before submitting your application.',
@@ -1021,10 +1174,12 @@ class ResumeReviewPage extends StatelessWidget {
             ),
           ),
 
-          // Full resume
+
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(
+            child:
+            SingleChildScrollView(
+              padding:
+              const EdgeInsets.fromLTRB(
                 16,
                 8,
                 16,
@@ -1033,10 +1188,12 @@ class ResumeReviewPage extends StatelessWidget {
               child: Card(
                 elevation: 3,
                 child: Padding(
-                  padding: const EdgeInsets.all(20),
+                  padding:
+                  const EdgeInsets.all(20),
                   child: Column(
                     crossAxisAlignment:
-                    CrossAxisAlignment.start,
+                    CrossAxisAlignment
+                        .start,
                     children: [
 
                       Center(
@@ -1045,26 +1202,43 @@ class ResumeReviewPage extends StatelessWidget {
                             const Icon(
                               Icons.description,
                               size: 55,
-                              color: Colors.indigo,
+                              color:
+                              Colors.indigo,
                             ),
-                            const SizedBox(height: 10),
+
+                            const SizedBox(
+                              height: 10,
+                            ),
+
                             Text(
-                              resume.fullName.isEmpty
+                              resume.fullName
+                                  .isEmpty
                                   ? 'Resume'
-                                  : resume.fullName,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
+                                  : resume
+                                  .fullName,
+                              textAlign:
+                              TextAlign
+                                  .center,
+                              style:
+                              const TextStyle(
                                 fontSize: 26,
-                                fontWeight: FontWeight.bold,
+                                fontWeight:
+                                FontWeight.bold,
                               ),
                             ),
-                            const SizedBox(height: 5),
+
+                            const SizedBox(
+                              height: 5,
+                            ),
+
                             const Text(
                               'Resume submitted for job application',
                               style: TextStyle(
-                                color: Colors.grey,
+                                color:
+                                Colors.grey,
                               ),
-                              textAlign: TextAlign.center,
+                              textAlign:
+                              TextAlign.center,
                             ),
                           ],
                         ),
@@ -1093,7 +1267,6 @@ class ResumeReviewPage extends StatelessWidget {
                         'Gender',
                         resume.gender,
                       ),
-
 
                       _sectionTitle(
                         'Contact Information',
@@ -1124,7 +1297,6 @@ class ResumeReviewPage extends StatelessWidget {
                         resume.summary,
                       ),
 
-
                       _sectionTitle(
                         'Work Experience',
                       ),
@@ -1133,7 +1305,6 @@ class ResumeReviewPage extends StatelessWidget {
                         'Experience',
                         resume.experience,
                       ),
-
 
                       _sectionTitle(
                         'Education',
@@ -1144,11 +1315,16 @@ class ResumeReviewPage extends StatelessWidget {
                         resume.education,
                       ),
 
-                      const SizedBox(height: 10),
+                      const SizedBox(
+                        height: 10,
+                      ),
 
                       const Divider(),
 
-                      const SizedBox(height: 10),
+                      const SizedBox(
+                        height: 10,
+                      ),
+
 
                       _sectionTitle(
                         'Application',
@@ -1174,29 +1350,46 @@ class ResumeReviewPage extends StatelessWidget {
                         poster.state,
                       ),
 
-                      const SizedBox(height: 10),
+                      const SizedBox(
+                        height: 10,
+                      ),
 
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Colors.green.shade50,
+                        padding:
+                        const EdgeInsets.all(
+                          14,
+                        ),
+                        decoration:
+                        BoxDecoration(
+                          color:
+                          Colors.green.shade50,
                           borderRadius:
-                          BorderRadius.circular(10),
+                          BorderRadius
+                              .circular(
+                            10,
+                          ),
                         ),
                         child: const Row(
                           crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                          CrossAxisAlignment
+                              .start,
                           children: [
                             Icon(
                               Icons.check_circle,
-                              color: Colors.green,
+                              color:
+                              Colors.green,
                             ),
-                            SizedBox(width: 10),
+
+                            SizedBox(
+                              width: 10,
+                            ),
+
                             Expanded(
                               child: Text(
                                 'Check all information carefully. Once you confirm, your resume will be submitted with this application.',
-                                style: TextStyle(
+                                style:
+                                TextStyle(
                                   fontSize: 14,
                                 ),
                               ),
@@ -1213,16 +1406,22 @@ class ResumeReviewPage extends StatelessWidget {
 
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding:
+              const EdgeInsets.all(16),
               child: Row(
                 children: [
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () {
-                        Navigator.pop(context);
+                        Navigator.pop(
+                          context,
+                        );
                       },
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
+                      style:
+                      OutlinedButton.styleFrom(
+                        padding:
+                        const EdgeInsets
+                            .symmetric(
                           vertical: 16,
                         ),
                       ),
@@ -1232,11 +1431,14 @@ class ResumeReviewPage extends StatelessWidget {
                     ),
                   ),
 
-                  const SizedBox(width: 12),
+                  const SizedBox(
+                    width: 12,
+                  ),
 
                   Expanded(
                     flex: 2,
-                    child: ElevatedButton.icon(
+                    child:
+                    ElevatedButton.icon(
                       onPressed: () {
                         Navigator.pop(
                           context,
@@ -1249,8 +1451,11 @@ class ResumeReviewPage extends StatelessWidget {
                       label: const Text(
                         'Confirm & Submit',
                       ),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
+                      style:
+                      ElevatedButton.styleFrom(
+                        padding:
+                        const EdgeInsets
+                            .symmetric(
                           vertical: 16,
                         ),
                       ),

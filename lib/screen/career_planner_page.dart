@@ -2,13 +2,15 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../model/career_planner_model.dart';
 export '../model/career_planner_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'app_drawer.dart';
 import '../service/career_planner_database.dart';
+import '../service/backup_download.dart';
+import '../service/interview_feedback.dart';
+import '../service/roi_calculator.dart';
 
 const courses = <Course>[
   Course(
@@ -368,6 +370,19 @@ class PlannerStore extends ChangeNotifier {
   }
 
   int revision = 0;
+  Map<String, dynamic> roiScenario = {};
+  Map<String, double> budgetScenario = {};
+  void saveRoi(RoiInputs value) {
+    value.validate();
+    roiScenario = value.toJson();
+    save();
+  }
+
+  void saveBudget(Map<String, double> value) {
+    budgetScenario = Map.of(value);
+    save();
+  }
+
   Set<String> skills = {};
   Map<String, String> interviewAnswers = {};
   void setSkill(String id, bool done) {
@@ -385,6 +400,8 @@ class PlannerStore extends ChangeNotifier {
   }
 
   Map<String, dynamic> get data => {
+    'roiScenario': roiScenario,
+    'budgetScenario': budgetScenario,
     'skills': skills.toList(),
     'interviewAnswers': interviewAnswers,
     'deductionRate': deductionRate,
@@ -487,6 +504,34 @@ class PlannerStore extends ChangeNotifier {
         )) {
       throw const FormatException('Invalid skills or interview drafts.');
     }
+    final savedRoi = Map<String, dynamic>.from(
+      data['roiScenario'] as Map? ?? {},
+    );
+    if (savedRoi.isNotEmpty) RoiInputs.fromJson(savedRoi);
+    final savedBudget = (data['budgetScenario'] as Map? ?? {}).map(
+      (k, v) => MapEntry(k as String, (v as num).toDouble()),
+    );
+    if (savedBudget.isNotEmpty) {
+      if (savedBudget.length != 5 ||
+          ![
+            'income',
+            'living',
+            'other',
+            'target',
+            'saved',
+          ].every(savedBudget.containsKey)) {
+        throw const FormatException('Invalid budget.');
+      }
+      BudgetResult.calculate(
+        income: savedBudget['income']!,
+        living: savedBudget['living']!,
+        other: savedBudget['other']!,
+        target: savedBudget['target']!,
+        saved: savedBudget['saved']!,
+      );
+    }
+    roiScenario = savedRoi;
+    budgetScenario = savedBudget;
     skills = savedSkills;
     interviewAnswers = savedInterviews;
     answers = savedAnswers;
@@ -540,6 +585,8 @@ class PlannerStore extends ChangeNotifier {
   }
 
   void resetProgress() {
+    roiScenario.clear();
+    budgetScenario.clear();
     skills.clear();
     interviewAnswers.clear();
     answers.clear();
@@ -1100,6 +1147,7 @@ class _InterviewPracticeScreenState extends State<InterviewPracticeScreen> {
       Text(
         '${answer.text.trim().isEmpty ? 0 : answer.text.trim().split(RegExp(r'\s+')).length} words',
       ),
+      InterviewFeedbackPanel(text: answer.text, prompt: prompt),
       OutlinedButton.icon(
         icon: const Icon(Icons.lightbulb_outline),
         label: const Text('Show coaching guide'),
@@ -1121,6 +1169,444 @@ class _InterviewPracticeScreenState extends State<InterviewPracticeScreen> {
               ),
               const Text(
                 'This guide does not grade your answer or predict hiring outcomes.',
+              ),
+            ],
+          ),
+        ),
+    ],
+  );
+}
+
+class InterviewFeedbackPanel extends StatelessWidget {
+  const InterviewFeedbackPanel({
+    super.key,
+    required this.text,
+    required this.prompt,
+  });
+  final String text, prompt;
+  @override
+  Widget build(BuildContext context) {
+    final feedback = InterviewFeedback.analyse(text, prompt);
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Tips for your answer',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          Text('${feedback.lengthLabel} · ${feedback.wordCount} words'),
+          Text('Tone: ${feedback.toneLabel}'),
+          for (final tip in feedback.tips)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              child: Text('• $tip'),
+            ),
+          const SizedBox(height: 8),
+          const Text(
+            'Automatic English writing suggestions based on word counts and phrases. They may miss context and do not grade your interview performance.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class RoiCalculatorScreen extends StatefulWidget {
+  const RoiCalculatorScreen({super.key, required this.store});
+  final PlannerStore store;
+  @override
+  State<RoiCalculatorScreen> createState() => _RoiCalculatorScreenState();
+}
+
+class _RoiCalculatorScreenState extends State<RoiCalculatorScreen> {
+  final form = GlobalKey<FormState>();
+  final fields = <String, TextEditingController>{};
+  RoiInputs? calculated;
+  RoiResult? result;
+  bool dirty = true;
+  String? error;
+  static const labels = {
+    'studyYears': 'Years of study (1–8)',
+    'horizon': 'Comparison period from today (years, up to 40)',
+    'tuition': 'Total tuition (RM)',
+    'studyIncome': 'Monthly take-home income during study (RM)',
+    'studyLiving': 'Monthly living costs during study (RM)',
+    'workLiving': 'Monthly living costs when working (RM)',
+    'graduateSalary': 'Monthly take-home pay at graduation (RM)',
+    'directSalary': 'Monthly take-home pay if working now (RM)',
+    'graduateGrowth': 'Annual graduate pay growth (%)',
+    'directGrowth': 'Annual direct-work pay growth (%)',
+    'inflation': 'Annual living-cost growth (%)',
+    'discount': 'Annual discount rate (%)',
+  };
+  Map<String, dynamic> defaults() => {
+    'studyYears': widget.store.selectedCourse.years,
+    'horizon': 20,
+    'tuition': widget.store.selectedCourse.tuition,
+    'studyIncome': 0,
+    'studyLiving': widget.store.livingCost,
+    'workLiving': widget.store.livingCost,
+    'graduateSalary': widget.store.takeHomeFor(widget.store.location).round(),
+    'directSalary': 2000,
+    'graduateGrowth': widget.store.selectedCourse.growth * 100,
+    'directGrowth': 2,
+    'inflation': 2.5,
+    'discount': 4,
+  };
+  @override
+  void initState() {
+    super.initState();
+    final saved = widget.store.roiScenario;
+    final values = saved.isEmpty ? defaults() : saved;
+    for (final key in labels.keys) {
+      fields[key] = TextEditingController(text: '${values[key]}');
+    }
+    if (saved.isNotEmpty) {
+      calculated = RoiInputs.fromJson(saved);
+      result = RoiCalculator.calculate(calculated!);
+      dirty = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final field in fields.values) {
+      field.dispose();
+    }
+    super.dispose();
+  }
+
+  void calculate() {
+    if (!form.currentState!.validate()) return;
+    try {
+      final values = <String, dynamic>{
+        for (final e in fields.entries)
+          e.key: e.key == 'studyYears' || e.key == 'horizon'
+              ? int.parse(e.value.text.trim())
+              : double.parse(e.value.text.trim()),
+      };
+      final input = RoiInputs.fromJson(values);
+      final projection = RoiCalculator.calculate(input);
+      widget.store.saveRoi(input);
+      setState(() {
+        calculated = input;
+        result = projection;
+        dirty = false;
+        error = null;
+      });
+    } on FormatException catch (e) {
+      setState(() => error = e.message);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(20),
+    children: [
+      const Heading(
+        'Is studying financially worthwhile?',
+        'Compare a study pathway with starting work now over the same time period.',
+      ),
+      const Text(
+        'Enter your own assumptions. The graduate pay default uses the selected DOSM state benchmark after assumed deductions; it is not a forecast or a graduate wage. Direct-work pay and growth rates are examples.',
+      ),
+      OutlinedButton(
+        onPressed: () => setState(() {
+          final values = defaults();
+          for (final key in fields.keys) {
+            fields[key]!.text = '${values[key]}';
+          }
+          dirty = true;
+        }),
+        child: Text(
+          'Use ${widget.store.selectedCourse.name} / ${widget.store.location} defaults',
+        ),
+      ),
+      Form(
+        key: form,
+        onChanged: () {
+          if (!dirty) setState(() => dirty = true);
+        },
+        child: Column(
+          children: [
+            for (final entry in labels.entries)
+              if (entry.key == 'studyYears' || entry.key == 'horizon')
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: TextFormField(
+                    controller: fields[entry.key],
+                    decoration: InputDecoration(labelText: entry.value),
+                    keyboardType: TextInputType.number,
+                    validator: (v) => int.tryParse(v?.trim() ?? '') == null
+                        ? 'Enter a whole number of years.'
+                        : null,
+                  ),
+                )
+              else
+                AmountField(
+                  controller: fields[entry.key]!,
+                  label: entry.value,
+                  maximum:
+                      [
+                        'graduateGrowth',
+                        'directGrowth',
+                        'inflation',
+                        'discount',
+                      ].contains(entry.key)
+                      ? 30
+                      : entry.key == 'tuition'
+                      ? 10000000
+                      : 100000,
+                ),
+            FilledButton.icon(
+              onPressed: calculate,
+              icon: const Icon(Icons.calculate),
+              label: const Text('Calculate ROI'),
+            ),
+          ],
+        ),
+      ),
+      if (error != null)
+        Text(
+          error!,
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        ),
+      if (dirty && result != null)
+        const Panel(
+          child: Text(
+            'Inputs changed. Calculate ROI again to update the results.',
+          ),
+        ),
+      if (!dirty && result != null) ...[
+        Panel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Metric(
+                'Extra net cash from studying after ${calculated!.horizon} years',
+                rm(result!.gain),
+              ),
+              Metric(
+                'Study-period investment including forgone net earnings',
+                rm(result!.investment),
+              ),
+              Metric(
+                'Incremental ROI',
+                result!.roiPercent == null
+                    ? 'Not applicable: no study-period deficit'
+                    : '${result!.roiPercent!.toStringAsFixed(1)}%',
+              ),
+              Metric('Net present value (NPV)', rm(result!.npv)),
+              Metric(
+                'First break-even from today',
+                result!.breakEven == null
+                    ? result!.investment == 0
+                          ? 'No initial deficit to recover'
+                          : 'Not reached in this period'
+                    : '${result!.breakEven!.toStringAsFixed(1)} years',
+              ),
+              Text(
+                result!.gain >= 0
+                    ? 'The study path ends ahead under these assumptions.'
+                    : 'Starting work immediately ends ahead under these assumptions.',
+              ),
+            ],
+          ),
+        ),
+        const Heading(
+          'Salary sensitivity',
+          'See how a 20% lower or higher graduate starting salary changes the outcome.',
+        ),
+        for (final factor in [0.8, 1.0, 1.2])
+          Builder(
+            builder: (context) {
+              final variant = RoiCalculator.calculate(
+                calculated!,
+                salaryFactor: factor,
+              );
+              return Panel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${((factor - 1) * 100).round()}% graduate salary: ${rm(calculated!.graduateSalary * factor)} / month',
+                    ),
+                    Text(
+                      'Extra net cash: ${rm(variant.gain)} | NPV: ${rm(variant.npv)}',
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        const Heading(
+          'Annual cash-flow comparison',
+          'Net cash equals take-home income minus living costs and tuition where applicable.',
+        ),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('Year')),
+              DataColumn(label: Text('Study path')),
+              DataColumn(label: Text('Work now')),
+              DataColumn(label: Text('Difference')),
+              DataColumn(label: Text('Cumulative difference')),
+            ],
+            rows: result!.years
+                .map(
+                  (row) => DataRow(
+                    cells: [
+                      DataCell(Text('${row.year}')),
+                      DataCell(Text(rm(row.studyNet))),
+                      DataCell(Text(rm(row.directNet))),
+                      DataCell(Text(rm(row.difference))),
+                      DataCell(Text(rm(row.cumulative))),
+                    ],
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+      ],
+      const SizedBox(height: 16),
+      const Text(
+        'Method: tuition is spread evenly across study years. Direct-work pay grows from year 2; graduate pay grows from the year after graduation. Living costs inflate from year 2. ROI = cumulative extra net cash ÷ study-period deficits × 100. NPV discounts annual differences at year end. Break-even is the first recovery of cumulative extra costs, interpolated within a year; later losses remain possible. Figures are nominal, with no loan interest, unemployment or separate tax model. Use take-home pay inputs.',
+      ),
+    ],
+  );
+}
+
+class BudgetCalculatorScreen extends StatefulWidget {
+  const BudgetCalculatorScreen({super.key, required this.store});
+  final PlannerStore store;
+  @override
+  State<BudgetCalculatorScreen> createState() => _BudgetCalculatorScreenState();
+}
+
+class _BudgetCalculatorScreenState extends State<BudgetCalculatorScreen> {
+  final form = GlobalKey<FormState>();
+  final fields = <String, TextEditingController>{};
+  BudgetResult? result;
+  bool dirty = true;
+  static const labels = {
+    'income': 'Monthly take-home income (RM)',
+    'living': 'Monthly living expenses (RM)',
+    'other': 'Other monthly expenses / repayments (RM)',
+    'target': 'Savings target (RM)',
+    'saved': 'Already saved (RM)',
+  };
+  @override
+  void initState() {
+    super.initState();
+    final values = widget.store.budgetScenario.isNotEmpty
+        ? widget.store.budgetScenario
+        : {
+            'income': widget.store.takeHomeFor(widget.store.location),
+            'living': widget.store.livingCost,
+            'other': 0.0,
+            'target': widget.store.selectedCourse.tuition,
+            'saved': 0.0,
+          };
+    for (final key in labels.keys) {
+      fields[key] = TextEditingController(
+        text: values[key]!.toStringAsFixed(2),
+      );
+    }
+    if (widget.store.budgetScenario.isNotEmpty) {
+      result = compute();
+      dirty = false;
+    }
+  }
+
+  Map<String, double> values() => {
+    for (final entry in fields.entries)
+      entry.key: double.parse(entry.value.text.trim()),
+  };
+  BudgetResult compute() {
+    final v = values();
+    return BudgetResult.calculate(
+      income: v['income']!,
+      living: v['living']!,
+      other: v['other']!,
+      target: v['target']!,
+      saved: v['saved']!,
+    );
+  }
+
+  @override
+  void dispose() {
+    for (final field in fields.values) {
+      field.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(20),
+    children: [
+      const Heading(
+        'Plan your monthly budget',
+        'Calculate what is left each month and the time needed to reach your savings target.',
+      ),
+      const Text(
+        'Initial income uses the selected DOSM benchmark after deductions. The initial savings target is illustrative course tuition. Edit these values to match your situation.',
+      ),
+      Form(
+        key: form,
+        onChanged: () {
+          if (!dirty) setState(() => dirty = true);
+        },
+        child: Column(
+          children: [
+            for (final entry in labels.entries)
+              AmountField(controller: fields[entry.key]!, label: entry.value),
+            FilledButton.icon(
+              icon: const Icon(Icons.calculate),
+              label: const Text('Calculate budget'),
+              onPressed: () {
+                if (!form.currentState!.validate()) return;
+                final calculated = compute();
+                widget.store.saveBudget(values());
+                setState(() {
+                  result = calculated;
+                  dirty = false;
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+      if (dirty && result != null)
+        const Text('Inputs changed. Recalculate to update your plan.'),
+      if (!dirty && result != null)
+        Panel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Metric(
+                result!.surplus >= 0 ? 'Monthly surplus' : 'Monthly deficit',
+                rm(result!.surplus),
+              ),
+              Metric('Still needed', rm(result!.remaining)),
+              Metric(
+                'Time to target',
+                result!.months == null
+                    ? 'Unreachable with this monthly budget'
+                    : result!.months == 0
+                    ? 'Target already reached'
+                    : '${result!.months} months',
+              ),
+              if (result!.surplus <= 0 && result!.remaining > 0)
+                const Text(
+                  'Reduce expenses or increase income before allocating money toward this target.',
+                ),
+              if (result!.surplus > 0)
+                Text('Annual potential savings: ${rm(result!.surplus * 12)}'),
+              const Text(
+                'Assumes the full surplus is saved each month, with unchanged income/expenses and no interest or investment returns.',
               ),
             ],
           ),
@@ -2041,8 +2527,13 @@ class OfficialWageCard extends StatelessWidget {
 }
 
 class PlannerDataScreen extends StatelessWidget {
-  const PlannerDataScreen({super.key, required this.store});
+  const PlannerDataScreen({
+    super.key,
+    required this.store,
+    this.exporter = downloadPlannerBackup,
+  });
   final PlannerStore store;
+  final Future<String> Function(String) exporter;
 
   Future<bool> confirm(
     BuildContext context,
@@ -2069,49 +2560,17 @@ class PlannerDataScreen extends StatelessWidget {
       false;
 
   Future<void> export(BuildContext context) async {
-    final raw = store.exportBackup();
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Planner backup'),
-        content: SizedBox(
-          width: 560,
-          height: 320,
-          child: SingleChildScrollView(child: SelectableText(raw)),
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final message = await exporter(store.exportBackup());
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Could not save the .txt backup. Please try again.'),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          FilledButton.icon(
-            icon: const Icon(Icons.copy),
-            label: const Text('Copy backup'),
-            onPressed: () async {
-              final messenger = ScaffoldMessenger.of(context);
-              try {
-                await Clipboard.setData(ClipboardData(text: raw));
-                messenger.showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Backup copied. Paste it into a text file and save it.',
-                    ),
-                  ),
-                );
-              } catch (_) {
-                messenger.showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Clipboard unavailable. Select and copy the backup text manually.',
-                    ),
-                  ),
-                );
-              }
-            },
-          ),
-        ],
-      ),
-    );
+      );
+    }
   }
 
   Future<void> restore(BuildContext context) async {
@@ -2224,7 +2683,7 @@ class PlannerDataScreen extends StatelessWidget {
             FilledButton.icon(
               onPressed: () => export(context),
               icon: const Icon(Icons.copy),
-              label: const Text('Export backup'),
+              label: const Text('Export backup (.txt)'),
             ),
             OutlinedButton.icon(
               onPressed: () => restore(context),
@@ -2235,7 +2694,7 @@ class PlannerDataScreen extends StatelessWidget {
         ),
         const SizedBox(height: 20),
         const Text(
-          'Backups include quiz answers, goals, milestones, skills checklists, interview drafts, course, location, deductions and the last calculated scenario. Login, bookings and other modules are managed separately.',
+          'Backups include quiz answers, goals, milestones, skills checklists, interview drafts, ROI and budget inputs, course, location, deductions and the last calculated scenario. Login, bookings and other modules are managed separately.',
         ),
         const SizedBox(height: 20),
         OutlinedButton.icon(
@@ -2353,7 +2812,7 @@ class _CareerPlannerPageState extends State<CareerPlannerPage>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 9, vsync: this);
+    _tabs = TabController(length: 10, vsync: this);
     _initialize();
   }
 
@@ -2417,8 +2876,9 @@ class _CareerPlannerPageState extends State<CareerPlannerPage>
           Tab(text: 'What-If Simulator'),
           Tab(text: 'Career Score'),
           Tab(text: 'Data Manager'),
-          Tab(text: 'Skills Builder'),
+          Tab(text: 'ROI Calculator'),
           Tab(text: 'Interview Practice'),
+          Tab(text: 'Budget & Savings'),
         ],
       ),
     ),
@@ -2464,8 +2924,9 @@ class _CareerPlannerPageState extends State<CareerPlannerPage>
                           onQuiz: () => _tabs.animateTo(0),
                         ),
                         PlannerDataScreen(store: _store),
-                        SkillsBuilderScreen(store: _store),
+                        RoiCalculatorScreen(store: _store),
                         InterviewPracticeScreen(store: _store),
+                        BudgetCalculatorScreen(store: _store),
                       ],
                     ),
                   ),
